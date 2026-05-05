@@ -1,0 +1,73 @@
+appId: com.jarvis.assistant.v5
+productName: Jarvis
+copyright: "Copyright © 2026"
+
+directories:
+  output: release
+  buildResources: buildfiles
+
+files:
+  - dist-electron/**/*
+  - package.json
+  - "!node_modules/**"
+  - "!release/**"
+  - "!.next/**"
+  - "!buildfiles/**"
+  - "!electron/**"
+  - "!electron-scripts/**"
+  - "!app/**"
+  - "!public/**"
+  - "!scripts/**"
+  - "!elements/**"
+  - "!icon.png"
+
+extraResources:
+  # Never pack a prior ./release into the app (causes recursive nesting + multi‑GB installers).
+  - from: .next/standalone
+    to: app
+    filter:
+      - "**/*"
+      - "!node_modules/**"
+      - "!release/**"
+  - from: .next/standalone/node_modules
+    to: app/node_modules
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  icon: buildfiles/icon.icns
+  category: public.app-category.productivity
+  darkModeSupport: true
+  # No Developer ID cert — skip codesigning entirely.
+  # Users on macOS will right-click → Open the first time (Gatekeeper bypass).
+  identity: null
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: buildfiles/icon.png
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+dmg:
+  title: "Jarvis Installer"
+  window:
+    width: 600
+    height: 400
+  contents:
+    - x: 150
+      y: 200
+      type: file
+    - x: 450
+      y: 200
+      type: link
+      path: /Applications

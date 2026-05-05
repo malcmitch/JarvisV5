@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ─── Theme CSS Variables ──────────────────────────────────────────────────── */
+
+html, html[data-theme="arc-reactor"] {
+  --accent-rgb: 34, 211, 238;
+  --accent-hex: #22d3ee;
+  --accent-dim: #0891b2;
+  --accent-dark-rgb: 8, 47, 73;
+  --accent-glow: rgba(34, 211, 238, 0.3);
+  --accent-glow-strong: rgba(34, 211, 238, 0.8);
+  --accent-glow-light: rgba(34, 211, 238, 0.15);
+  --accent-bg: rgba(34, 211, 238, 0.1);
+}
+
+html[data-theme="midnight"] {
+  --accent-rgb: 168, 85, 247;
+  --accent-hex: #a855f7;
+  --accent-dim: #7e22ce;
+  --accent-dark-rgb: 46, 16, 101;
+  --accent-glow: rgba(168, 85, 247, 0.3);
+  --accent-glow-strong: rgba(168, 85, 247, 0.8);
+  --accent-glow-light: rgba(168, 85, 247, 0.15);
+  --accent-bg: rgba(168, 85, 247, 0.1);
+}
+
+html[data-theme="crimson"] {
+  --accent-rgb: 239, 68, 68;
+  --accent-hex: #ef4444;
+  --accent-dim: #b91c1c;
+  --accent-dark-rgb: 69, 10, 10;
+  --accent-glow: rgba(239, 68, 68, 0.3);
+  --accent-glow-strong: rgba(239, 68, 68, 0.8);
+  --accent-glow-light: rgba(239, 68, 68, 0.15);
+  --accent-bg: rgba(239, 68, 68, 0.1);
+}
+
+html[data-theme="matrix"] {
+  --accent-rgb: 34, 197, 94;
+  --accent-hex: #22c55e;
+  --accent-dim: #15803d;
+  --accent-dark-rgb: 5, 46, 22;
+  --accent-glow: rgba(34, 197, 94, 0.3);
+  --accent-glow-strong: rgba(34, 197, 94, 0.8);
+  --accent-glow-light: rgba(34, 197, 94, 0.15);
+  --accent-bg: rgba(34, 197, 94, 0.1);
+}
+
+/* ─── Color class overrides for non-default themes ─────────────────────────── */
+
+html:not([data-theme="arc-reactor"]) {
+
+  /* Text */
+  .text-cyan-300  { color: rgba(var(--accent-rgb), 0.9); }
+  .text-cyan-400  { color: var(--accent-hex); }
+  .text-cyan-500  { color: rgba(var(--accent-rgb), 0.65); }
+  .text-cyan-600  { color: rgba(var(--accent-rgb), 0.45); }
+
+  /* Borders */
+  .border-cyan-400   { border-color: var(--accent-hex); }
+  .border-cyan-500   { border-color: rgba(var(--accent-rgb), 0.65); }
+
+  /* Backgrounds */
+  .bg-cyan-400  { background-color: var(--accent-hex); }
+  .bg-cyan-500  { background-color: var(--accent-hex); }
+  .bg-cyan-900\/50  { background-color: rgba(var(--accent-rgb), 0.08); }
+  .bg-cyan-900\/60  { background-color: rgba(var(--accent-rgb), 0.12); }
+  .bg-cyan-950\/10  { background-color: rgba(var(--accent-rgb), 0.04); }
+  .bg-cyan-950\/20  { background-color: rgba(var(--accent-rgb), 0.06); }
+  .bg-cyan-950\/30  { background-color: rgba(var(--accent-rgb), 0.08); }
+  .bg-cyan-500\/20  { background-color: rgba(var(--accent-rgb), 0.12); }
+  .bg-cyan-500\/30  { background-color: rgba(var(--accent-rgb), 0.18); }
+  .bg-cyan-500\/50  { background-color: rgba(var(--accent-rgb), 0.35); }
+
+  /* Hover states */
+  .hover\:text-cyan-300:hover  { color: rgba(var(--accent-rgb), 0.9); }
+  .hover\:text-cyan-400:hover  { color: var(--accent-hex); }
+  .hover\:border-cyan-400:hover { border-color: var(--accent-hex); }
+  .hover\:bg-cyan-900\/80:hover { background-color: rgba(var(--accent-rgb), 0.15); }
+  .hover\:bg-cyan-500\/30:hover { background-color: rgba(var(--accent-rgb), 0.18); }
+  .group:hover .group-hover\:text-cyan-300 { color: rgba(var(--accent-rgb), 0.9); }
+  .group:hover .group-hover\:bg-cyan-400   { background-color: var(--accent-hex); }
+
+  /* Focus states */
+  .focus\:border-cyan-400:focus { border-color: var(--accent-hex); }
+}
+
+/* ─── Music equalizer bars animation ────────────────────────────────────────── */
+
+@keyframes music-bar {
+  0%, 100% { transform: scaleY(0.4); }
+  50%       { transform: scaleY(1.0); }
+}
+
+/* ─── X-ray animation ───────────────────────────────────────────────────────── */
+
+@keyframes xray-sweep {
+  0%   { top: 0%; }
+  50%  { top: calc(100% - 2px); }
+  100% { top: 0%; }
+}
+
+.animate-xray-sweep {
+  animation: xray-sweep 2s ease-in-out infinite;
+}
