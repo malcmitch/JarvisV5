@@ -2,7 +2,7 @@
 
 A fully-featured, Iron Man-inspired AI desktop assistant built with Electron + Next.js. Jarvis combines a cinematic sci-fi HUD with a genuinely capable voice AI that can search the web, control your computer, generate images, play music, open documents, and much more — all via natural conversation.
 
-[![Watch the intro](https://img.youtube.com/vi/BIF1FryGurE/maxresdefault.jpg)](https://youtu.be/BIF1FryGurE)
+<video src="https://github.com/kcoda36/JarvisV5/releases/download/v1.0/intro.mp4" controls width="100%"></video>
 
 ---
 
