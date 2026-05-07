@@ -14,13 +14,15 @@ interface SettingsModalProps {
 
 export type JarvisTheme = 'arc-reactor' | 'midnight' | 'crimson' | 'matrix';
 export type JarvisGrid = 'off' | 'small' | 'medium' | 'large';
-export type JarvisVisualizer = 'frequency-ring' | 'arc-reactor';
+export type JarvisVisualizer = 'frequency-ring' | 'arc-reactor' | 'sphere-nodes';
 export type JarvisLogo = 'logo' | 'logo2';
 export type JarvisPosition = 'center' | 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
 
 export interface JarvisSettings {
+  apiMode: 'openai' | 'elevenlabs';
   apiKey: string;
-  xaiApiKey: string;
+  elevenLabsAgentId?: string;
+  elevenLabsFirstMessage?: string;
   voice: 'alloy' | 'echo' | 'shimmer';
   initialPrompt: string;
   enabledFunctions: string[];
@@ -38,6 +40,11 @@ export interface JarvisSettings {
 const VISUALIZERS: { id: JarvisVisualizer; name: string; desc: string }[] = [
   { id: 'frequency-ring', name: 'Frequency Ring', desc: 'FFT bars radiating from the logo rings' },
   { id: 'arc-reactor',    name: 'Arc Reactor',    desc: 'Polar wave + segmented reactor rings' },
+  {
+    id: 'sphere-nodes',
+    name: 'Sphere Nodes',
+    desc: '3D orbiting nodes + FFT glitch; logo built from particles',
+  },
 ];
 
 const LOGOS: { id: JarvisLogo; name: string; src: string }[] = [
@@ -154,51 +161,101 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings }: Sett
           {/* Jarvis Tab */}
           {activeTab === 'jarvis' && (
             <>
+              {/* API Mode switcher */}
               <div className="space-y-2">
-                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">OpenAI API Key</label>
-                <input
-                  type="password"
-                  value={settings.apiKey}
-                  onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })}
-                  placeholder="sk-..."
-                  className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">xAI API Key</label>
-                <input
-                  type="password"
-                  value={settings.xaiApiKey}
-                  onChange={(e) => setSettings({ ...settings, xaiApiKey: e.target.value })}
-                  placeholder="xai-..."
-                  className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
-                />
-                <p className="text-xs text-cyan-700">Required for Code Execution (Grok). Get one at <span className="text-cyan-500">console.x.ai</span></p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice Interface</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['alloy', 'echo', 'shimmer'] as const).map((voice) => (
-                    <button
-                      key={voice}
-                      onClick={() => { sfx('select', 0.5); setSettings({ ...settings, voice }); }}
-                      className={`px-3 py-2 border rounded text-sm uppercase tracking-wide transition-all ${
-                        settings.voice === voice
-                          ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
-                          : 'bg-transparent border-cyan-500/20 text-cyan-600 hover:border-cyan-500/50 hover:text-cyan-400'
-                      }`}
-                    >
-                      {voice}
-                    </button>
-                  ))}
+                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice Engine</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['openai', 'elevenlabs'] as const).map((mode) => {
+                    const active = (settings.apiMode ?? 'openai') === mode;
+                    const labels = { openai: 'OpenAI Realtime', elevenlabs: 'ElevenLabs' };
+                    const descs  = { openai: 'GPT-4o via WebRTC', elevenlabs: 'Jarvis Agent via WebRTC' };
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => { sfx('select', 0.5); setSettings({ ...settings, apiMode: mode }); }}
+                        className={`flex flex-col items-start px-3 py-2.5 border rounded text-left transition-all ${
+                          active
+                            ? 'bg-cyan-500/20 border-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+                            : 'bg-transparent border-cyan-500/20 hover:border-cyan-500/50'
+                        }`}
+                      >
+                        <span className={`text-xs font-bold uppercase tracking-wide ${active ? 'text-cyan-300' : 'text-cyan-600'}`}>
+                          {labels[mode]}
+                        </span>
+                        <span className="text-[10px] text-white/30 mt-0.5">{descs[mode]}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
+              {/* OpenAI fields */}
+              {(settings.apiMode ?? 'openai') === 'openai' && (
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">OpenAI API Key</label>
+                  <input
+                    type="password"
+                    value={settings.apiKey}
+                    onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })}
+                    placeholder="sk-..."
+                    className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
+                  />
+                </div>
+              )}
+
+              {/* ElevenLabs fields */}
+              {(settings.apiMode ?? 'openai') === 'elevenlabs' && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Agent ID</label>
+                    <input
+                      type="text"
+                      value={settings.elevenLabsAgentId ?? ''}
+                      onChange={(e) => setSettings({ ...settings, elevenLabsAgentId: e.target.value })}
+                      placeholder="agent_..."
+                      className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
+                    />
+                    <p className="text-xs text-cyan-700">Found in your ElevenLabs agent dashboard.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">First Message <span className="text-cyan-700 normal-case font-normal">(optional override)</span></label>
+                    <input
+                      type="text"
+                      value={settings.elevenLabsFirstMessage ?? ''}
+                      onChange={(e) => setSettings({ ...settings, elevenLabsFirstMessage: e.target.value })}
+                      placeholder="Good evening, sir. All systems online."
+                      className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
+                    />
+                    <p className="text-xs text-cyan-700">Leave empty to use the agent&apos;s default greeting.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Voice Interface — OpenAI only */}
+              {(settings.apiMode ?? 'openai') === 'openai' && (
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice Interface</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['alloy', 'echo', 'shimmer'] as const).map((voice) => (
+                      <button
+                        key={voice}
+                        onClick={() => { sfx('select', 0.5); setSettings({ ...settings, voice }); }}
+                        className={`px-3 py-2 border rounded text-sm uppercase tracking-wide transition-all ${
+                          settings.voice === voice
+                            ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+                            : 'bg-transparent border-cyan-500/20 text-cyan-600 hover:border-cyan-500/50 hover:text-cyan-400'
+                        }`}
+                      >
+                        {voice}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice Visualizer</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {VISUALIZERS.map((v) => {
                     const active = settings.visualizer === v.id;
                     return (

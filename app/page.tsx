@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ConversationProvider } from '@elevenlabs/react';
 import { JarvisAssistant } from "./components/JarvisAssistant";
 import { HUDLayer } from "./components/HUD/HUDLayer";
 import { IntroAnimation } from "./components/IntroAnimation";
@@ -30,7 +31,9 @@ export default function Home() {
     <main className="min-h-screen bg-black text-white overflow-hidden relative">
       {/* JarvisAssistant hidden until intro ends (ring sync still runs underneath) */}
       <div style={{ opacity: contentReady ? 1 : 0, transition: 'none' }}>
-        <JarvisAssistant />
+        <ConversationProvider>
+          <JarvisAssistant />
+        </ConversationProvider>
       </div>
 
       {/* HUDLayer always rendered so widgets are in place behind the intro overlay.

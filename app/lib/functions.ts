@@ -535,48 +535,6 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
     },
   },
   {
-    name: 'code_execution',
-    label: 'Code Execution',
-    description: 'Let Jarvis run Python calculations and data analysis in a remote xAI sandbox',
-    tool: {
-      type: 'function',
-      name: 'code_execution',
-      description:
-        'Execute Python code in a remote sandboxed environment powered by xAI (Grok). ' +
-        'Use this for calculations, tabulation, statistics, chart-style analysis, and analyzing data. ' +
-        'Do NOT use this for local files, shell commands, your repo, or paired devices — use run_shell_command for those.',
-      parameters: {
-        type: 'object',
-        properties: {
-          task: {
-            type: 'string',
-            description: 'A natural-language description of what to compute or analyze. Grok will write and execute the Python code.',
-          },
-        },
-        required: ['task'],
-      },
-    },
-    handler: async (args) => {
-      const task = args.task as string;
-      if (!task) return { error: 'No task provided.' };
-
-      const stored = localStorage.getItem('jarvis_settings');
-      const xaiApiKey = stored ? JSON.parse(stored).xaiApiKey : '';
-      if (!xaiApiKey) return { error: 'No xAI API key found. Add one in Settings.' };
-
-      try {
-        const res = await fetch('/api/code-execution', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task, xaiApiKey }),
-        });
-        return await res.json();
-      } catch (err) {
-        return { error: String(err) };
-      }
-    },
-  },
-  {
     name: 'take_photo',
     label: 'Camera',
     description: "Let Jarvis take a photo with your camera and display it on screen",

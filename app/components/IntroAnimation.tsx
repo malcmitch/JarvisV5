@@ -67,7 +67,7 @@ export function IntroAnimation({
     const NUM_WIDGETS  = 5;
 
     const timers: ReturnType<typeof setTimeout>[] = [
-      setTimeout(() => { setPhase('scan');     sfx('select', 0.5);     },  400),
+      setTimeout(() => { setPhase('scan');     sfx('select', 0.5); sfx('loading', 0.7); },  400),
       setTimeout(() => { setPhase('assemble'); sfx('intro2', 0.8); }, 2400),
       setTimeout(() => { setPhase('widgets'); },                          WIDGET_START),
       setTimeout(() => { setVisible(false); onFadeStart?.(); },           6900),

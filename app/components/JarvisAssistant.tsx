@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useConversation } from '@elevenlabs/react';
 import Image from 'next/image';
 import { AnimatePresence } from 'framer-motion';
 import { SettingsModal, JarvisSettings } from './SettingsModal';
@@ -8,14 +9,16 @@ import { FUNCTION_REGISTRY, getFunctionByName } from '../lib/functions';
 import { XrayWidget } from './XrayWidget';
 import { CameraWidget } from './CameraWidget';
 import { ArcReactorVisualizer } from './visualizers/ArcReactorVisualizer';
+import { SphereNodesVisualizer } from './visualizers/SphereNodesVisualizer';
 import { PhotoWidget, PhotoEntry } from './PhotoWidget';
 import { sfx } from '../lib/sfx';
 
 const FFT_BARS = 64;
-
 const DEFAULT_SETTINGS: JarvisSettings = {
+  apiMode: 'openai',
   apiKey: '',
-  xaiApiKey: '',
+  elevenLabsAgentId: '',
+  elevenLabsFirstMessage: '',
   voice: 'echo',
   initialPrompt: 'You are Jarvis, a helpful AI assistant. You are always helpful, polite, and concise. Subtle British accent. Robotic. Emotionally controlled. Witty and a little bit poking fun at the user.',
   enabledFunctions: [],
@@ -44,6 +47,33 @@ export function JarvisAssistant() {
   const lastTimeRef = useRef<number>(Date.now());
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const elPollRef = useRef<number | null>(null);
+
+  // Map every entry in FUNCTION_REGISTRY to an ElevenLabs clientTools handler.
+  // As tools are added to the ElevenLabs agent dashboard they'll automatically work.
+  const elClientTools = Object.fromEntries(
+    FUNCTION_REGISTRY.map((fn) => [
+      fn.name,
+      (params: Record<string, unknown>) => fn.handler(params),
+    ])
+  );
+
+  // ElevenLabs Conversational AI hook
+  const elConversation = useConversation({
+    clientTools: elClientTools,
+    onConnect: () => {
+      console.log('ElevenLabs connected');
+      setStatus('active');
+    },
+    onDisconnect: () => {
+      console.log('ElevenLabs disconnected');
+      if (statusRef.current !== 'idle') setStatus('idle');
+    },
+    onError: (error) => {
+      console.error('ElevenLabs error:', error);
+      setStatus('error');
+    },
+  });
 
   // Photo context state
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
@@ -53,6 +83,7 @@ export function JarvisAssistant() {
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<JarvisSettings>(DEFAULT_SETTINGS);
+  const [restartTrigger, setRestartTrigger] = useState(0);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
@@ -67,7 +98,7 @@ export function JarvisAssistant() {
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
     if (prev === status) return;
-    if (status === 'listening') sfx('loading', 0.7);
+
     if (status === 'error')     sfx('error', 0.8);
     if (status === 'idle' && prev !== 'idle') sfx('app_close', 0.6);
   }, [status]);
@@ -135,9 +166,19 @@ export function JarvisAssistant() {
   // Send current photos as a conversation item so Jarvis has them in context.
   // Called whenever the photo list changes (if session is live) and on session open.
   function injectPhotosIntoSession(currentPhotos: PhotoEntry[]) {
+    if (currentPhotos.length === 0) return;
+
+    // ElevenLabs path — send text-only contextual update (no vision support via client SDK)
+    if (elConversation.status === 'connected') {
+      elConversation.sendContextualUpdate(
+        `The user currently has ${currentPhotos.length} image${currentPhotos.length > 1 ? 's' : ''} on screen for visual context.`,
+      ).catch(() => {});
+      return;
+    }
+
+    // OpenAI Realtime path
     const dc = dataChannelRef.current;
     if (!dc || dc.readyState !== 'open') return;
-    if (currentPhotos.length === 0) return;
 
     const content: unknown[] = [
       {
@@ -158,10 +199,20 @@ export function JarvisAssistant() {
 
   /** Append plain text from a HUD paste into the realtime conversation so the model sees it. */
   function injectPastedHudTextIntoSession(rawText: string) {
-    const dc = dataChannelRef.current;
-    if (!dc || dc.readyState !== 'open') return;
     const trimmed = rawText.trim();
     if (!trimmed) return;
+
+    // ElevenLabs path
+    if (elConversation.status === 'connected') {
+      elConversation.sendContextualUpdate(
+        'The user pasted the following text onto the HUD (it also appears in a TEXT NOTE widget). Treat it as context for what they want to discuss:\n\n' + trimmed,
+      ).catch(() => {});
+      return;
+    }
+
+    // OpenAI Realtime path
+    const dc = dataChannelRef.current;
+    if (!dc || dc.readyState !== 'open') return;
 
     dc.send(
       JSON.stringify({
@@ -350,6 +401,41 @@ export function JarvisAssistant() {
     };
   }, [status]);
 
+  // ElevenLabs audio level polling (simulates FFT from output volume)
+  useEffect(() => {
+    if (status !== 'active' || elConversation.status !== 'connected') {
+      if (elPollRef.current) {
+        cancelAnimationFrame(elPollRef.current);
+        elPollRef.current = null;
+      }
+      return;
+    }
+
+    const poll = () => {
+      const vol = elConversation.getOutputVolume();
+      setAudioLevel(vol);
+
+      const t = Date.now() / 250;
+      const fakeFft = Array.from({ length: FFT_BARS }, (_, i) => {
+        const wave = Math.abs(Math.sin(t + i * 0.35)) * vol;
+        const noise = Math.random() * 0.12 * vol;
+        return Math.min(1, wave + noise);
+      });
+      setFftData(fakeFft);
+
+      elPollRef.current = requestAnimationFrame(poll);
+    };
+
+    poll();
+
+    return () => {
+      if (elPollRef.current) {
+        cancelAnimationFrame(elPollRef.current);
+        elPollRef.current = null;
+      }
+    };
+  }, [status, elConversation.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function startRealtime(currentSettings = settings) {
     try {
       // Don't start if no API key
@@ -529,7 +615,59 @@ export function JarvisAssistant() {
     }
   }
 
+  async function startElevenLabs(currentSettings = settings) {
+    try {
+      // Only tear down OpenAI WebRTC — do NOT call endSession() here because
+      // the ElevenLabs SDK queues it and will fire it on the session we're about to open.
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+      if (dataChannelRef.current) {
+        dataChannelRef.current.close();
+        dataChannelRef.current = null;
+      }
+      if (remoteStreamRef.current) {
+        remoteStreamRef.current.getTracks().forEach(t => t.stop());
+        remoteStreamRef.current = null;
+      }
+      setStatus('listening');
+
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const agentId = currentSettings.elevenLabsAgentId?.trim();
+      if (!agentId) {
+        console.warn('No ElevenLabs Agent ID configured — add one in Settings.');
+        setStatus('idle');
+        return;
+      }
+
+      const overrideAgent: Record<string, unknown> = {};
+      if (currentSettings.initialPrompt) overrideAgent.prompt = { prompt: currentSettings.initialPrompt };
+      if (currentSettings.elevenLabsFirstMessage?.trim()) overrideAgent.firstMessage = currentSettings.elevenLabsFirstMessage.trim();
+      const overrides = Object.keys(overrideAgent).length > 0 ? { agent: overrideAgent } : undefined;
+
+      await elConversation.startSession({
+        agentId,
+        connectionType: 'websocket',
+        ...(overrides && { overrides }),
+      });
+    } catch (error) {
+      console.error('Error starting ElevenLabs session:', error);
+      setStatus('error');
+    }
+  }
+
+  async function start(currentSettings = settings) {
+    if ((currentSettings.apiMode ?? 'openai') === 'elevenlabs') {
+      await startElevenLabs(currentSettings);
+    } else {
+      await startRealtime(currentSettings);
+    }
+  }
+
   function disconnect() {
+    // OpenAI WebRTC cleanup
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
@@ -542,25 +680,30 @@ export function JarvisAssistant() {
       remoteStreamRef.current.getTracks().forEach(t => t.stop());
       remoteStreamRef.current = null;
     }
+    // ElevenLabs cleanup (fire-and-forget; may return undefined if not connected)
+    try { elConversation.endSession(); } catch { /* no active session */ }
     setStatus('idle');
   }
 
-  // Auto-start on mount if key exists
+  // Auto-start on mount / mode change / explicit restart
   useEffect(() => {
-    if (settings.apiKey) {
-      startRealtime(settings);
+    const mode = settings.apiMode ?? 'openai';
+    const shouldStart =
+      (mode === 'elevenlabs' && !!settings.elevenLabsAgentId?.trim()) ||
+      (mode === 'openai' && !!settings.apiKey);
+    if (shouldStart) {
+      start(settings);
     }
     return () => disconnect();
-  }, [settings.apiKey]); // Restart if key changes
+  }, [settings.apiKey, settings.apiMode, restartTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveSettings = (newSettings: JarvisSettings) => {
     setSettings(newSettings);
     localStorage.setItem('jarvis_settings', JSON.stringify(newSettings));
     setIsSettingsOpen(false);
-    
-    // Restart connection with new settings
-    disconnect();
-    setTimeout(() => startRealtime(newSettings), 500);
+    // Increment trigger so the auto-start effect re-runs with the new settings.
+    // This avoids the race where a manual setTimeout races against the effect.
+    setRestartTrigger((t) => t + 1);
   };
 
   const ring1Scale = 1 + audioLevel * 0.08;
@@ -629,7 +772,7 @@ export function JarvisAssistant() {
         <div className={`relative flex items-center justify-center aspect-square pointer-events-auto transition-all duration-300 ${isCenter ? 'w-[80vw] max-w-[500px]' : 'w-[50vw] max-w-[340px]'}`}>
 
           {/* ── Frequency Ring visualizer (default) ── */}
-          {settings.visualizer !== 'arc-reactor' && (
+          {settings.visualizer === 'frequency-ring' && (
             <>
               {/* Ring 2 - Outer */}
               <div
@@ -717,25 +860,46 @@ export function JarvisAssistant() {
             </div>
           )}
 
-          {/* Logo - Center (Clickable for Settings) */}
-          <div
-            className="relative z-10 w-[55%] h-[55%] cursor-pointer group"
-            onClick={() => { sfx('sfx_settings_open', 0.7); setIsSettingsOpen(true); }}
-            style={{
-              transform: `scale(${logoScale})`,
-              filter: `drop-shadow(0 0 ${glowIntensity}px rgba(var(--accent-rgb), 0.9))`
-            }}
-          >
-            <Image
-              src={`/assets/${settings.logo ?? 'logo'}.png`}
-              alt="Jarvis Logo"
-              width={300}
-              height={300}
-              className="w-full h-full object-contain group-hover:drop-shadow-[0_0_15px_rgba(34,211,238,0.6)] transition-all"
-              priority
-              draggable={false}
+          {/* ── 3D sphere + particle logo ── */}
+          {settings.visualizer === 'sphere-nodes' && (
+            <div className="absolute inset-0 z-[5] pointer-events-none">
+              <SphereNodesVisualizer
+                fftData={fftData}
+                status={status}
+                logoUrl={`/assets/${settings.logo ?? 'logo'}.png`}
+              />
+            </div>
+          )}
+
+          {/* Logo - Center (Clickable for Settings); 3D mode uses particle logo instead */}
+          {settings.visualizer !== 'sphere-nodes' && (
+            <div
+              className="relative z-10 w-[55%] h-[55%] cursor-pointer group"
+              onClick={() => { sfx('sfx_settings_open', 0.7); setIsSettingsOpen(true); }}
+              style={{
+                transform: `scale(${logoScale})`,
+                filter: `drop-shadow(0 0 ${glowIntensity}px rgba(var(--accent-rgb), 0.9))`
+              }}
+            >
+              <Image
+                src={`/assets/${settings.logo ?? 'logo'}.png`}
+                alt="Jarvis Logo"
+                width={300}
+                height={300}
+                className="w-full h-full object-contain group-hover:drop-shadow-[0_0_15px_rgba(34,211,238,0.6)] transition-all"
+                priority
+                draggable={false}
+              />
+            </div>
+          )}
+          {settings.visualizer === 'sphere-nodes' && (
+            <button
+              type="button"
+              aria-label="Open settings"
+              className="absolute z-10 w-[55%] h-[55%] max-w-[280px] max-h-[280px] cursor-pointer rounded-full bg-transparent border-0 p-0 pointer-events-auto group"
+              onClick={() => { sfx('sfx_settings_open', 0.7); setIsSettingsOpen(true); }}
             />
-          </div>
+          )}
 
           {/* Status Info */}
           <div className="absolute bottom-[-100px] left-1/2 -translate-x-1/2 text-center space-y-4 w-full">
@@ -745,7 +909,7 @@ export function JarvisAssistant() {
                 if (status === 'active' || status === 'listening') {
                   disconnect();
                 } else {
-                  startRealtime();
+                  start();
                 }
               }}
               className="flex items-center justify-center gap-3 mx-auto hover:scale-105 transition-transform cursor-pointer group"
@@ -782,7 +946,7 @@ export function JarvisAssistant() {
             
             {status === 'error' && (
                <button 
-                 onClick={() => startRealtime()}
+                 onClick={() => start()}
                  className="px-4 py-2 bg-cyan-900/50 text-cyan-300 rounded hover:bg-cyan-900/80 transition-colors pointer-events-auto"
                >
                  Retry
