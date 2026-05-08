@@ -706,7 +706,9 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       description:
         "Control the HUD widgets displayed on the home screen. Use this when the user asks to open, close, show, hide, or manage widgets. " +
         "Commands: 'open' adds a widget, 'close' removes a widget, 'clear' removes all widgets, 'reset' restores the default layout. " +
-        "Widget names: 'clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image'. " +
+        "Widget names: 'clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image', 'terminal'. " +
+        "IMPORTANT: The 'map' widget here is a small HUD minimap overlay — it is NOT the full Jarvis Map page. " +
+        "If the user asks to 'open the map', 'go to the map page', 'show the map', 'navigate on a map', or wants to fly to a location/draw a route, use map_command instead. " +
         "When opening the 'text' widget, optionally supply text_content and title. " +
         "When opening the 'pdf' widget, supply pdf_source (https URL, site path like /file.pdf, or absolute filesystem path in the desktop app).",
       parameters: {
@@ -719,8 +721,8 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           },
           widget: {
             type: 'string',
-            enum: ['clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image'],
-            description: "The widget to open or close. Required for 'open' and 'close' commands. Ignored for 'clear' and 'reset'.",
+            enum: ['clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image', 'terminal'],
+            description: "The widget to open or close. Required for 'open' and 'close' commands. Ignored for 'clear' and 'reset'. Use 'terminal' to show the error terminal.",
           },
           text_content: {
             type: 'string',
@@ -922,6 +924,134 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       } catch (err) {
         return { error: String(err) };
       }
+    },
+  },
+  {
+    name: 'navigate_to_page',
+    label: 'Navigate to Page',
+    description: 'Switch Jarvis to a different view — e.g. open the live news feed and stock ticker',
+    tool: {
+      type: 'function',
+      name: 'navigate_to_page',
+      description:
+        'Navigate Jarvis to a different page. Use for "home" or "news" only. ' +
+        '"news" opens the live news feed with streaming video and market data. ' +
+        '"home" returns to the main Jarvis home screen. ' +
+        'NEVER use this for map or location requests — use map_command instead.',
+      parameters: {
+        type: 'object',
+        properties: {
+          page: {
+            type: 'string',
+            enum: ['home', 'news'],
+            description: '"home" = main Jarvis view. "news" = live news + stocks feed.',
+          },
+        },
+        required: ['page'],
+      },
+    },
+    handler: async (args) => {
+      const page = args.page as string;
+      if (!page) return { error: 'No page specified.' };
+      window.dispatchEvent(new CustomEvent('jarvis:navigate', { detail: { page: page } }));
+
+      if (page === 'news') {
+        try {
+          const res = await fetch('/api/news-headlines');
+          const data = (await res.json()) as { items?: { title: string }[] };
+          const headlines = (data.items ?? []).slice(0, 8).map((h) => h.title);
+          return {
+            success: true,
+            navigated_to: page,
+            top_headlines: headlines,
+            instruction:
+              'The news page is now open. Briefly summarize these top headlines to the user in 2–3 concise sentences. Do not list them individually — give a fluid summary of what is happening in the world right now.',
+          };
+        } catch {
+          return {
+            success: true,
+            navigated_to: page,
+            instruction: 'The news page is open. Let the user know you have opened the news feed.',
+          };
+        }
+      }
+
+      return { success: true, navigated_to: page };
+    },
+  },
+  {
+    name: 'map_command',
+    label: 'Map Control',
+    description: 'Control the Jarvis map — fly to locations, add markers, draw glowing routes',
+    tool: {
+      type: 'function',
+      name: 'map_command',
+      description:
+        'Open the Jarvis Map page and fly to / interact with any location. ' +
+        'This is the ONLY function for ANYTHING map or location related. ALWAYS call this — never navigate_to_page or control_hud — when the user says things like: ' +
+        '"navigate to X", "show me X", "go to X", "take me to X", "pull up X on the map", "where is X", "open the map", "fly to X", "zoom in on X", "find X", "search for X nearby". ' +
+        'For any location request use command=fly_to with location set to the place name. ' +
+        'Examples: "navigate to Tokyo" → fly_to, location="Tokyo". "show me Paris" → fly_to, location="Paris". ' +
+        '"where am I?" → show_user_location. "route from Chicago to Detroit" → draw_route. "find coffee nearby" → search_nearby.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+            enum: [
+              'fly_to',
+              'fly_to_coordinates',
+              'add_marker',
+              'show_user_location',
+              'draw_route',
+              'clear_markers',
+              'search_nearby',
+            ],
+            description:
+              'fly_to: fly to a named location. ' +
+              'fly_to_coordinates: fly to lat/lng. ' +
+              'add_marker: pin a labeled marker. ' +
+              'show_user_location: fly to and mark the user\'s GPS position. ' +
+              'draw_route: draw a glowing driving route between two places. ' +
+              'clear_markers: remove all markers and routes. ' +
+              'search_nearby: search for a type of place near a location.',
+          },
+          location: {
+            type: 'string',
+            description: 'City, address, or place name (for fly_to and search_nearby).',
+          },
+          lat: { type: 'number', description: 'Latitude (for fly_to_coordinates and add_marker).' },
+          lng: { type: 'number', description: 'Longitude (for fly_to_coordinates and add_marker).' },
+          zoom: { type: 'number', description: 'Map zoom level 1–20 (optional, defaults to 13).' },
+          label: { type: 'string', description: 'Marker label text (for add_marker).' },
+          description: { type: 'string', description: 'Optional marker subtitle (for add_marker).' },
+          start: { type: 'string', description: 'Route start location name (for draw_route).' },
+          end: { type: 'string', description: 'Route end location name (for draw_route).' },
+          query: { type: 'string', description: 'What to search for nearby, e.g. "coffee" (for search_nearby).' },
+        },
+        required: ['command'],
+      },
+    },
+    handler: (args) => {
+      const command = args.command as string;
+
+      // Embed the map command in the navigate event so page.tsx can pass it as
+      // a prop to MapPage — no setTimeout race condition.
+      window.dispatchEvent(new CustomEvent('jarvis:navigate', {
+        detail: { page: 'map', mapCommand: { type: command, ...args } },
+      }));
+
+      const desc: Record<string, string> = {
+        fly_to: `Flying to "${args.location ?? ''}" on the map.`,
+        fly_to_coordinates: `Flying to coordinates ${args.lat}, ${args.lng}.`,
+        add_marker: `Marking "${args.label ?? ''}" on the map.`,
+        show_user_location: 'Locating you on the map.',
+        draw_route: `Drawing route from "${args.start ?? ''}" to "${args.end ?? ''}".`,
+        clear_markers: 'Clearing all markers.',
+        search_nearby: `Searching for "${args.query ?? ''}" near "${args.location ?? ''}".`,
+      };
+
+      return { success: true, message: desc[command] ?? `Map command "${command}" sent.` };
     },
   },
 ];

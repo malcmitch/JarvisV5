@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useConversation } from '@elevenlabs/react';
 import Image from 'next/image';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { SettingsModal, JarvisSettings } from './SettingsModal';
 import { FUNCTION_REGISTRY, getFunctionByName } from '../lib/functions';
 import { XrayWidget } from './XrayWidget';
@@ -12,6 +12,7 @@ import { ArcReactorVisualizer } from './visualizers/ArcReactorVisualizer';
 import { SphereNodesVisualizer } from './visualizers/SphereNodesVisualizer';
 import { PhotoWidget, PhotoEntry } from './PhotoWidget';
 import { sfx } from '../lib/sfx';
+import { installErrorInterceptors, emitError } from '../lib/errorBus';
 
 const FFT_BARS = 64;
 const DEFAULT_SETTINGS: JarvisSettings = {
@@ -31,7 +32,7 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   pythonPathOverride: '',
 };
 
-export function JarvisAssistant() {
+export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   const [status, setStatus] = useState<'idle' | 'listening' | 'active' | 'error'>('idle');
   const [audioLevel, setAudioLevel] = useState(0);
   const [fftData, setFftData] = useState<number[]>(new Array(FFT_BARS).fill(0));
@@ -51,10 +52,18 @@ export function JarvisAssistant() {
 
   // Map every entry in FUNCTION_REGISTRY to an ElevenLabs clientTools handler.
   // As tools are added to the ElevenLabs agent dashboard they'll automatically work.
-  const elClientTools = Object.fromEntries(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const elClientTools: Record<string, (params: any) => any> = Object.fromEntries(
     FUNCTION_REGISTRY.map((fn) => [
       fn.name,
-      (params: Record<string, unknown>) => fn.handler(params),
+      async (params: Record<string, unknown>) => {
+        const result = await fn.handler(params);
+        const r = result as Record<string, unknown> | null;
+        if (typeof r?.error === 'string') {
+          emitError('function', `${fn.name}(): ${r.error}`, 'error');
+        }
+        return result;
+      },
     ])
   );
 
@@ -87,6 +96,10 @@ export function JarvisAssistant() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // Install global error interceptors once so all console.error calls,
+  // uncaught JS errors, and unhandled rejections stream to TerminalWidget.
+  useEffect(() => { installErrorInterceptors(); }, []);
 
   useEffect(() => {
     statusRef.current = status;
@@ -170,8 +183,10 @@ export function JarvisAssistant() {
 
     // ElevenLabs path — send text-only contextual update (no vision support via client SDK)
     if (elConversation.status === 'connected') {
-      elConversation.sendContextualUpdate(
-        `The user currently has ${currentPhotos.length} image${currentPhotos.length > 1 ? 's' : ''} on screen for visual context.`,
+      Promise.resolve(
+        elConversation.sendContextualUpdate(
+          `The user currently has ${currentPhotos.length} image${currentPhotos.length > 1 ? 's' : ''} on screen for visual context.`,
+        ),
       ).catch(() => {});
       return;
     }
@@ -204,8 +219,10 @@ export function JarvisAssistant() {
 
     // ElevenLabs path
     if (elConversation.status === 'connected') {
-      elConversation.sendContextualUpdate(
-        'The user pasted the following text onto the HUD (it also appears in a TEXT NOTE widget). Treat it as context for what they want to discuss:\n\n' + trimmed,
+      Promise.resolve(
+        elConversation.sendContextualUpdate(
+          'The user pasted the following text onto the HUD (it also appears in a TEXT NOTE widget). Treat it as context for what they want to discuss:\n\n' + trimmed,
+        ),
       ).catch(() => {});
       return;
     }
@@ -563,8 +580,15 @@ export function JarvisAssistant() {
 
             const result = await fn.handler(parsedArgs);
 
+            // Surface function-level errors (e.g. ENOENT, missing API key, network failures)
+            // to the Error Terminal widget so they're visible without opening devtools.
+            const resultObj = result as Record<string, unknown> & { imageBase64?: string };
+            if (typeof resultObj?.error === 'string') {
+              emitError('function', `${fnName}(): ${resultObj.error}`, 'error');
+            }
+
             // Extract imageBase64 if present so it's sent as a vision input, not raw text
-            const { imageBase64, ...textResult } = (result as Record<string, unknown> & { imageBase64?: string });
+            const { imageBase64, ...textResult } = resultObj;
 
             // Send function result back
             dc.send(JSON.stringify({
@@ -765,11 +789,27 @@ export function JarvisAssistant() {
         />
       )}
 
-      <div className={`fixed inset-0 flex overflow-hidden pointer-events-none select-none ${positionClass[pos]} ${positionPadding[pos]}`}>
-        {/* Background with slight gradient */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/20 pointer-events-none" />
+      <div className={`fixed inset-0 flex overflow-hidden pointer-events-none select-none ${
+        compact
+          ? 'items-end justify-end pb-6 pr-6 z-[60]'
+          : `${positionClass[pos]} ${positionPadding[pos]}`
+      }`}>
+        {/* Background with slight gradient — hidden in compact mode */}
+        {!compact && (
+          <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/20 pointer-events-none" />
+        )}
 
-        <div className={`relative flex items-center justify-center aspect-square pointer-events-auto transition-all duration-300 ${isCenter ? 'w-[80vw] max-w-[500px]' : 'w-[50vw] max-w-[340px]'}`}>
+        <motion.div
+          layout
+          transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
+          className={`relative flex items-center justify-center aspect-square pointer-events-auto ${
+            compact
+              ? 'w-[160px]'
+              : isCenter
+              ? 'w-[80vw] max-w-[500px]'
+              : 'w-[50vw] max-w-[340px]'
+          }`}
+        >
 
           {/* ── Frequency Ring visualizer (default) ── */}
           {settings.visualizer === 'frequency-ring' && (
@@ -901,59 +941,61 @@ export function JarvisAssistant() {
             />
           )}
 
-          {/* Status Info */}
-          <div className="absolute bottom-[-100px] left-1/2 -translate-x-1/2 text-center space-y-4 w-full">
-            <button 
-              onClick={() => {
-                sfx('click', 0.6);
-                if (status === 'active' || status === 'listening') {
-                  disconnect();
-                } else {
-                  start();
-                }
-              }}
-              className="flex items-center justify-center gap-3 mx-auto hover:scale-105 transition-transform cursor-pointer group"
-            >
-              <div
-                className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                  status === 'idle'
-                    ? 'bg-gray-500 group-hover:bg-cyan-400'
-                    : status === 'listening'
-                    ? 'bg-yellow-400 animate-pulse'
-                    : status === 'active'
-                    ? 'bg-cyan-400 animate-pulse'
-                    : 'bg-red-500'
-                }`}
-              />
-              <span className="text-xl font-semibold text-cyan-400 uppercase tracking-wider group-hover:text-cyan-300 transition-colors">
-                {status === 'idle' ? 'OFFLINE' : status}
-              </span>
-            </button>
+          {/* Status Info — hidden in compact corner mode */}
+          {!compact && (
+            <div className="absolute bottom-[-100px] left-1/2 -translate-x-1/2 text-center space-y-4 w-full">
+              <button 
+                onClick={() => {
+                  sfx('click', 0.6);
+                  if (status === 'active' || status === 'listening') {
+                    disconnect();
+                  } else {
+                    start();
+                  }
+                }}
+                className="flex items-center justify-center gap-3 mx-auto hover:scale-105 transition-transform cursor-pointer group"
+              >
+                <div
+                  className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                    status === 'idle'
+                      ? 'bg-gray-500 group-hover:bg-cyan-400'
+                      : status === 'listening'
+                      ? 'bg-yellow-400 animate-pulse'
+                      : status === 'active'
+                      ? 'bg-cyan-400 animate-pulse'
+                      : 'bg-red-500'
+                  }`}
+                />
+                <span className="text-xl font-semibold text-cyan-400 uppercase tracking-wider group-hover:text-cyan-300 transition-colors">
+                  {status === 'idle' ? 'OFFLINE' : status}
+                </span>
+              </button>
 
-            <p className="text-sm text-white/60 max-w-md px-4 mx-auto">
-              {status === 'listening' ? (
-                'Establishing connection...'
-              ) : status === 'active' ? (
-                'J.A.R.V.I.S. is online. Click status to disconnect.'
-              ) : status === 'error' ? (
-                'Connection error. Check Settings.'
-              ) : status === 'idle' ? (
-                'Click status to activate'
-              ) : !settings.apiKey ? (
-                'Click logo to configure API Key'
-              ) : null}
-            </p>
-            
-            {status === 'error' && (
-               <button 
-                 onClick={() => start()}
-                 className="px-4 py-2 bg-cyan-900/50 text-cyan-300 rounded hover:bg-cyan-900/80 transition-colors pointer-events-auto"
-               >
-                 Retry
-               </button>
-            )}
-          </div>
-        </div>
+              <p className="text-sm text-white/60 max-w-md px-4 mx-auto">
+                {status === 'listening' ? (
+                  'Establishing connection...'
+                ) : status === 'active' ? (
+                  'J.A.R.V.I.S. is online. Click status to disconnect.'
+                ) : status === 'error' ? (
+                  'Connection error. Check Settings.'
+                ) : status === 'idle' ? (
+                  'Click status to activate'
+                ) : !settings.apiKey ? (
+                  'Click logo to configure API Key'
+                ) : null}
+              </p>
+              
+              {status === 'error' && (
+                <button 
+                  onClick={() => start()}
+                  className="px-4 py-2 bg-cyan-900/50 text-cyan-300 rounded hover:bg-cyan-900/80 transition-colors pointer-events-auto"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+        </motion.div>
 
         {/* Hidden Audio Element */}
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />

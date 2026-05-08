@@ -58,6 +58,14 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
 
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: buildfiles/icon.png
+  category: Utility
+
 dmg:
   title: "Jarvis Installer"
   window:

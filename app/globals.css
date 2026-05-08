@@ -114,3 +114,45 @@ html:not([data-theme="arc-reactor"]) {
 .animate-xray-sweep {
   animation: xray-sweep 2s ease-in-out infinite;
 }
+
+/* ─── News headline ticker (horizontal) ─────────────────────────────────────── */
+
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ─── Top stories ticker (vertical scroll-up) ────────────────────────────────── */
+
+@keyframes scroll-up {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+
+/* ─── Map marker pulse ring ──────────────────────────────────────────────────── */
+
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.7); }
+  70%  { box-shadow: 0 0 0 14px rgba(34, 211, 238, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
+}
+
+.jarvis-map-marker {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #22d3ee;
+  border: 2px solid rgba(34, 211, 238, 0.4);
+  animation: pulse-ring 2s ease-out infinite;
+  cursor: pointer;
+}
+
+.jarvis-map-marker-user {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #a78bfa;
+  border: 2px solid rgba(167, 139, 250, 0.4);
+  animation: pulse-ring 2s ease-out infinite;
+  cursor: pointer;
+}

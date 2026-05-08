@@ -13,8 +13,9 @@ import { MusicWidget } from './widgets/MusicWidget';
 import { TextWidget } from './widgets/TextWidget';
 import { PdfWidget } from './widgets/PdfWidget';
 import { ImageWidget } from './widgets/ImageWidget';
+import { TerminalWidget } from './widgets/TerminalWidget';
 
-type WidgetType = 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image';
+type WidgetType = 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image' | 'terminal';
 
 interface ModuleData {
   id: string;
@@ -39,15 +40,16 @@ interface ModuleData {
 }
 
 const WIDGET_META: Record<WidgetType, { title: string; width: number; height: number }> = {
-  clock:   { title: 'LOCAL TIME',      width: 300, height: 180 },
-  system:  { title: 'SYSTEM STATUS',   width: 300, height: 250 },
-  network: { title: 'NETWORK TRAFFIC', width: 300, height: 200 },
-  map:     { title: 'GEO-LOCATION',    width: 400, height: 250 },
-  suit:    { title: 'MK.2 ARMOR',      width: 240, height: 500 },
-  music:   { title: 'NOW PLAYING',     width: 300, height: 230 },
-  text:    { title: 'TEXT NOTE',       width: 380, height: 280 },
-  pdf:     { title: 'DOCUMENT',        width: 440, height: 340 },
-  image:   { title: 'IMAGE',           width: 400, height: 360 },
+  clock:    { title: 'LOCAL TIME',      width: 300, height: 180 },
+  system:   { title: 'SYSTEM STATUS',   width: 300, height: 250 },
+  network:  { title: 'NETWORK TRAFFIC', width: 300, height: 200 },
+  map:      { title: 'GEO-LOCATION',    width: 400, height: 250 },
+  suit:     { title: 'MK.2 ARMOR',      width: 240, height: 500 },
+  music:    { title: 'NOW PLAYING',     width: 300, height: 230 },
+  text:     { title: 'TEXT NOTE',       width: 380, height: 280 },
+  pdf:      { title: 'DOCUMENT',        width: 440, height: 340 },
+  image:    { title: 'IMAGE',           width: 400, height: 360 },
+  terminal: { title: 'ERROR TERMINAL',  width: 540, height: 380 },
 };
 
 function buildDefaultModules(w: number): ModuleData[] {
@@ -265,6 +267,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
               caption={module.imageCaption}
             />
           )}
+          {module.type === 'terminal' && <TerminalWidget />}
         </HUDModule>
       ))}
     </div>

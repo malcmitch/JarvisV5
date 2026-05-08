@@ -8,12 +8,29 @@ import os from 'os';
 // contains scripts/dist/computer_use (the PyInstaller binary).
 // In development, fall back to calling python3 directly.
 const SCRIPTS_DIR = path.join(process.cwd(), 'scripts');
+
+// Use both process.platform and process.env.OS — some Electron-as-Node
+// launch environments on Windows have process.platform !== 'win32' even
+// though the OS is Windows. process.env.OS is reliably 'Windows_NT' on Windows.
+const IS_WINDOWS = process.platform === 'win32' || process.env.OS === 'Windows_NT';
+
+// On Windows we expect the .exe; on other platforms no extension.
+// resolveRealBinaryPath() also checks the alternate name so a macOS binary
+// that was accidentally cross-bundled is not silently spawned on Windows
+// (it would spawn as ENOENT because Windows can't execute a Mach-O binary).
+function resolveRealBinaryPath(): string | null {
+  const base = path.join(SCRIPTS_DIR, 'dist', 'computer_use');
+  if (IS_WINDOWS) {
+    if (fs.existsSync(base + '.exe')) return base + '.exe';
+    // .exe missing — the macOS binary may be present but is useless on Windows
+    return null;
+  }
+  if (fs.existsSync(base)) return base;
+  return null;
+}
+
 const BINARY_PATH = path.resolve(
-  path.join(
-    SCRIPTS_DIR,
-    'dist',
-    process.platform === 'win32' ? 'computer_use.exe' : 'computer_use'
-  )
+  path.join(SCRIPTS_DIR, 'dist', IS_WINDOWS ? 'computer_use.exe' : 'computer_use')
 );
 const SCRIPT_PATH = path.resolve(path.join(SCRIPTS_DIR, 'computer_use.py'));
 
@@ -171,6 +188,8 @@ function run(
     let cmd: string;
     let args: string[];
 
+    const realBinaryPath = resolveRealBinaryPath();
+
     if (pythonPathOverride) {
       if (!fs.existsSync(SCRIPT_PATH)) {
         resolve({
@@ -181,11 +200,11 @@ function run(
       cmd = pythonPathOverride;
       args = [SCRIPT_PATH, task, apiKey];
       console.log('[computer-use] Using Python path from settings:', cmd);
-    } else if (fs.existsSync(BINARY_PATH)) {
+    } else if (realBinaryPath) {
       // Self-contained binary — no Python needed on the user's machine
-      cmd = BINARY_PATH;
+      cmd = realBinaryPath;
       args = [task, apiKey];
-      console.log('[computer-use] Using bundled binary:', BINARY_PATH);
+      console.log('[computer-use] Using bundled binary:', realBinaryPath);
     } else {
       if (!fs.existsSync(SCRIPT_PATH)) {
         resolve({
@@ -195,8 +214,11 @@ function run(
       }
       const resolved = resolveScriptRunner(task, apiKey);
       if (!resolved) {
+        const winNote = IS_WINDOWS
+          ? ` On Windows, computer_use.exe was not found at ${BINARY_PATH} — the Windows build requires running 'npm run build:python' on a Windows machine before packaging.`
+          : '';
         resolve({
-          error: `${MISSING_HELPER_MSG} Expected helper: ${BINARY_PATH}`,
+          error: `${MISSING_HELPER_MSG}${winNote}`,
         });
         return;
       }

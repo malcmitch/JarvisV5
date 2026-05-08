@@ -12,12 +12,15 @@
     "build": "npm run build:python && npm run build:next && node electron-scripts/postbuild.js && npm run build:electron",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
     "dist": "npm run build && electron-builder --mac --win --publish never",
     "start": "electron .",
     "lint": "eslint"
   },
   "dependencies": {
-    "@elevenlabs/react": "^1.4.0"
+    "@elevenlabs/react": "^1.4.0",
+    "@types/leaflet": "^1.9.21",
+    "leaflet": "^1.9.4"
   },
   "devDependencies": {
     "@jitsi/robotjs": "^0.6.22",
