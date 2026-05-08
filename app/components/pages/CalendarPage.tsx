@@ -1,0 +1,496 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import type { ICalEvent } from '../../api/ical/route';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface Task {
+  id: string;
+  text: string;
+  done: boolean;
+  time?: string;
+}
+
+type TaskStore    = Record<string, Task[]>;
+type ICalStore    = Record<string, ICalEvent[]>; // keyed by YYYY-MM-DD
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const DAYS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+
+function dateKey(y: number, m: number, d: number) {
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+function todayKey() {
+  const n = new Date();
+  return dateKey(n.getFullYear(), n.getMonth(), n.getDate());
+}
+function daysInMonth(y: number, m: number) { return new Date(y, m + 1, 0).getDate(); }
+function firstDayOfMonth(y: number, m: number) { return new Date(y, m, 1).getDay(); }
+
+function loadTasks(): TaskStore {
+  if (typeof window === 'undefined') return {};
+  try { return JSON.parse(localStorage.getItem('jarvis_calendar_tasks') ?? '{}'); } catch { return {}; }
+}
+function saveTasks(s: TaskStore) { localStorage.setItem('jarvis_calendar_tasks', JSON.stringify(s)); }
+
+function loadICalUrl(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('jarvis_ical_url') ?? '';
+}
+
+function formatEventTime(ev: ICalEvent): string {
+  if (ev.allDay) return 'All day';
+  return new Date(ev.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function groupByDate(events: ICalEvent[]): ICalStore {
+  const store: ICalStore = {};
+  for (const ev of events) {
+    const key = ev.start.slice(0, 10);
+    if (!store[key]) store[key] = [];
+    store[key].push(ev);
+  }
+  return store;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+interface Props { onNavigateHome: () => void; }
+
+export function CalendarPage({ onNavigateHome }: Props) {
+  const today = new Date();
+  const [viewYear,  setViewYear]  = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [selectedKey, setSelectedKey] = useState(todayKey());
+  const [tasks,   setTasks]   = useState<TaskStore>(loadTasks);
+  const [newTask, setNewTask] = useState('');
+  const [newTime, setNewTime] = useState('');
+
+  // iCal state
+  const [icalUrl,     setIcalUrl]     = useState(loadICalUrl);
+  const [icalEvents,  setIcalEvents]  = useState<ICalStore>({});
+  const [icalLoading, setIcalLoading] = useState(false);
+  const [icalError,   setIcalError]   = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [draftUrl, setDraftUrl] = useState('');
+
+  const isConnected = !!icalUrl;
+
+  // ── Fetch iCal events ──────────────────────────────────────────────────────
+
+  const fetchIcal = useCallback(async (url: string) => {
+    if (!url) return;
+    setIcalLoading(true);
+    setIcalError('');
+    try {
+      const res  = await fetch(`/api/ical?url=${encodeURIComponent(url)}`);
+      const data = await res.json() as { events?: ICalEvent[]; error?: string };
+      if (data.error) { setIcalError(data.error); return; }
+      setIcalEvents(groupByDate(data.events ?? []));
+    } catch (e) {
+      setIcalError('Could not load calendar feed.');
+    } finally {
+      setIcalLoading(false);
+    }
+  }, []);
+
+  // Fetch on mount and when URL changes
+  useEffect(() => { if (icalUrl) fetchIcal(icalUrl); }, [icalUrl, fetchIcal]);
+
+  // ── Jarvis event handler ───────────────────────────────────────────────────
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail ?? {};
+      const { type, date, text, time, taskId } = detail;
+
+      if (type === 'add_task') {
+        const key = date ?? todayKey();
+        const task: Task = { id: Date.now().toString(), text: text ?? '', done: false, time: time ?? undefined };
+        setTasks((prev) => { const next = { ...prev, [key]: [...(prev[key] ?? []), task] }; saveTasks(next); return next; });
+        if (date) {
+          const [y, m] = date.split('-').map(Number);
+          setViewYear(y); setViewMonth(m - 1); setSelectedKey(date);
+        }
+      }
+      if (type === 'complete_task') {
+        const key = date ?? selectedKey;
+        setTasks((prev) => {
+          const next = { ...prev, [key]: (prev[key] ?? []).map((t) =>
+            t.id === taskId || t.text.toLowerCase().includes((text ?? '').toLowerCase())
+              ? { ...t, done: true } : t) };
+          saveTasks(next); return next;
+        });
+      }
+      if (type === 'clear_tasks') {
+        const key = date ?? todayKey();
+        setTasks((prev) => { const next = { ...prev, [key]: [] }; saveTasks(next); return next; });
+      }
+      if (type === 'go_to_date' && date) {
+        const [y, m] = date.split('-').map(Number);
+        setViewYear(y); setViewMonth(m - 1); setSelectedKey(date);
+      }
+      if (type === 'refresh_ical') {
+        if (icalUrl) fetchIcal(icalUrl);
+      }
+    };
+    window.addEventListener('jarvis:calendar', handler);
+    return () => window.removeEventListener('jarvis:calendar', handler);
+  }, [selectedKey, icalUrl, fetchIcal]);
+
+  // ── Local task helpers ─────────────────────────────────────────────────────
+
+  const addTask = useCallback(() => {
+    const text = newTask.trim(); if (!text) return;
+    const task: Task = { id: Date.now().toString(), text, done: false, time: newTime.trim() || undefined };
+    setTasks((prev) => { const next = { ...prev, [selectedKey]: [...(prev[selectedKey] ?? []), task] }; saveTasks(next); return next; });
+    setNewTask(''); setNewTime('');
+  }, [newTask, newTime, selectedKey]);
+
+  const toggleTask = useCallback((key: string, id: string) => {
+    setTasks((prev) => {
+      const next = { ...prev, [key]: (prev[key] ?? []).map((t) => t.id === id ? { ...t, done: !t.done } : t) };
+      saveTasks(next); return next;
+    });
+  }, []);
+
+  const deleteTask = useCallback((key: string, id: string) => {
+    setTasks((prev) => { const next = { ...prev, [key]: (prev[key] ?? []).filter((t) => t.id !== id) }; saveTasks(next); return next; });
+  }, []);
+
+  const prevMonth = () => { if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); } else setViewMonth(m => m - 1); };
+  const nextMonth = () => { if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); } else setViewMonth(m => m + 1); };
+
+  // ── Grid ───────────────────────────────────────────────────────────────────
+
+  const totalDays = daysInMonth(viewYear, viewMonth);
+  const startDay  = firstDayOfMonth(viewYear, viewMonth);
+  const cells: (number | null)[] = [...Array(startDay).fill(null), ...Array.from({ length: totalDays }, (_, i) => i + 1)];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const todayStr          = todayKey();
+  const selectedDayTasks  = tasks[selectedKey] ?? [];
+  const selectedDayEvents = icalEvents[selectedKey] ?? [];
+
+  const selectedDate = new Date(
+    parseInt(selectedKey.split('-')[0]),
+    parseInt(selectedKey.split('-')[1]) - 1,
+    parseInt(selectedKey.split('-')[2])
+  );
+  const selectedLabel = `${DAYS[selectedDate.getDay()]}, ${MONTHS[selectedDate.getMonth()]} ${selectedDate.getDate()}`;
+  const totalItems    = selectedDayTasks.length + selectedDayEvents.length;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  return (
+    <motion.div
+      key="calendar-page"
+      className="fixed inset-0 bg-[#050810] z-[50] overflow-hidden flex flex-col"
+      initial={{ x: '100%', filter: 'blur(24px)', opacity: 0 }}
+      animate={{ x: 0, filter: 'blur(0px)', opacity: 1 }}
+      exit={{ x: '-100%', filter: 'blur(24px)', opacity: 0 }}
+      transition={{ duration: 0.65, ease: [0.4, 0, 0.2, 1] }}
+    >
+      {/* HUD corners */}
+      {['top-0 left-0 border-t-2 border-l-2','top-0 right-0 border-t-2 border-r-2',
+        'bottom-0 left-0 border-b-2 border-l-2','bottom-0 right-0 border-b-2 border-r-2'].map((cls,i) => (
+        <div key={i} className={`absolute w-8 h-8 ${cls} border-cyan-500/20 pointer-events-none z-10 m-3`} />
+      ))}
+
+      {/* Header */}
+      <div className="flex items-center justify-between px-8 py-4 border-b border-white/[0.06]">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="text-[10px] font-mono text-cyan-400/70 uppercase tracking-widest">Jarvis Calendar</span>
+          </div>
+          <button
+            onClick={() => { setDraftUrl(icalUrl); setSettingsOpen(true); }}
+            className={`flex items-center gap-1.5 px-3 h-7 rounded-lg border text-[9px] font-mono uppercase tracking-wider transition-all
+              ${isConnected
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                : 'bg-white/[0.04] border-white/[0.08] text-white/30 hover:text-white/50 hover:border-white/15'}`}
+          >
+            <div className={`w-1 h-1 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-white/20'}`} />
+            {isConnected ? 'Google Calendar Connected' : 'Connect Google Calendar'}
+          </button>
+          {icalLoading && <span className="text-[9px] font-mono text-white/20 animate-pulse">Syncing…</span>}
+          {icalError   && <span className="text-[9px] font-mono text-red-400/60">{icalError}</span>}
+        </div>
+        <button
+          onClick={onNavigateHome}
+          className="h-8 px-4 flex items-center gap-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/40 hover:text-cyan-400 hover:border-cyan-500/40 transition-all text-[9px] font-mono uppercase tracking-wider"
+        >
+          ← Home
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-1 min-h-0">
+
+        {/* ── Left: Calendar grid ───────────────────────────────────────── */}
+        <div className="flex flex-col flex-1 min-w-0 p-8 border-r border-white/[0.06]">
+
+          <div className="flex items-center justify-between mb-5">
+            <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/[0.08] text-white/30 hover:text-cyan-400 hover:border-cyan-500/30 transition-all text-sm font-mono">‹</button>
+            <div className="text-center">
+              <div className="text-white font-mono font-semibold text-lg tracking-wide">{MONTHS[viewMonth]}</div>
+              <div className="text-white/30 font-mono text-[11px] mt-0.5">{viewYear}</div>
+            </div>
+            <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/[0.08] text-white/30 hover:text-cyan-400 hover:border-cyan-500/30 transition-all text-sm font-mono">›</button>
+          </div>
+
+          <div className="grid grid-cols-7 border-b border-white/[0.08]">
+            {DAYS.map((d) => (
+              <div key={d} className="text-center text-[11px] font-mono text-white/30 uppercase tracking-widest py-2">{d}</div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 flex-1 border-l border-t border-white/[0.08]">
+            {cells.map((day, i) => {
+              if (!day) return <div key={`e-${i}`} className="border-r border-b border-white/[0.08] bg-white/[0.01]" />;
+              const key     = dateKey(viewYear, viewMonth, day);
+              const isToday = key === todayStr;
+              const isSel   = key === selectedKey;
+              const localCnt = (tasks[key] ?? []).filter(t => !t.done).length;
+              const gcalCnt  = (icalEvents[key] ?? []).length;
+
+              return (
+                <button
+                  key={key}
+                  onClick={() => setSelectedKey(key)}
+                  className={`relative flex flex-col items-start justify-start p-2 border-r border-b border-white/[0.08] font-mono transition-all min-h-[72px]
+                    ${isSel ? 'bg-cyan-500/[0.15]' : isToday ? 'bg-cyan-500/[0.07] hover:bg-cyan-500/[0.13]' : 'hover:bg-white/[0.04]'}`}
+                >
+                  <span className={`text-xl leading-none mb-1 ${isSel ? 'text-cyan-300 font-bold' : isToday ? 'text-cyan-400 font-bold' : 'text-white/60'}`}>
+                    {day}
+                  </span>
+                  {isToday && !isSel && <div className="w-4 h-[2px] rounded-full bg-cyan-500/60 mb-1" />}
+                  <div className="flex gap-0.5 flex-wrap">
+                    {Array.from({ length: Math.min(localCnt, 3) }).map((_, j) => (
+                      <div key={`l${j}`} className="w-1.5 h-1.5 rounded-full bg-cyan-400/50" />
+                    ))}
+                    {Array.from({ length: Math.min(gcalCnt, 3) }).map((_, j) => (
+                      <div key={`g${j}`} className="w-1.5 h-1.5 rounded-full bg-violet-400/60" />
+                    ))}
+                  </div>
+                  {isSel && <div className="absolute inset-0 border-2 border-cyan-500/50 pointer-events-none" />}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-5 mt-4 pt-4 border-t border-white/[0.04]">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded border border-cyan-500/30 bg-cyan-500/10" />
+              <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">Today</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400/50" />
+              <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">Local tasks</span>
+            </div>
+            {isConnected && (
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-violet-400/60" />
+                <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">Google events</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Right: Schedule ────────────────────────────────────────────── */}
+        <div className="flex flex-col w-[420px] shrink-0 p-8">
+
+          <div className="mb-5">
+            <div className="text-[9px] font-mono text-white/25 uppercase tracking-widest mb-1">Schedule</div>
+            <div className="text-white font-mono text-lg font-semibold">{selectedLabel}</div>
+            <div className="text-white/25 text-[10px] font-mono mt-0.5">
+              {totalItems === 0 ? 'Nothing scheduled' : `${totalItems} item${totalItems !== 1 ? 's' : ''}`}
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 scrollbar-hide">
+            <AnimatePresence initial={false}>
+
+              {/* Google Calendar events */}
+              {selectedDayEvents.map((ev) => (
+                <motion.div
+                  key={ev.id}
+                  initial={{ opacity: 0, x: 16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -16 }}
+                  transition={{ duration: 0.18 }}
+                  className="flex items-start gap-3 p-3 rounded-lg border border-violet-500/20 bg-violet-500/[0.06]"
+                >
+                  <div className="mt-1.5 w-2 h-2 shrink-0 rounded-full bg-violet-400/70" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[9px] font-mono text-violet-400/60 mb-0.5">
+                      {formatEventTime(ev)}{ev.location ? ` · ${ev.location}` : ''} · Google
+                    </div>
+                    <div className="text-[12px] font-mono text-white/75 leading-snug">{ev.title}</div>
+                    {ev.description && (
+                      <div className="text-[10px] font-mono text-white/30 mt-0.5 line-clamp-2">{ev.description}</div>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+
+              {/* Local tasks */}
+              {selectedDayTasks.length === 0 && selectedDayEvents.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center h-32 text-white/15 font-mono text-[11px] uppercase tracking-widest"
+                >
+                  <div className="text-2xl mb-2 opacity-30">◎</div>
+                  Nothing scheduled
+                </motion.div>
+              ) : (
+                selectedDayTasks.map((task) => (
+                  <motion.div
+                    key={task.id}
+                    initial={{ opacity: 0, x: 16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -16 }}
+                    transition={{ duration: 0.18 }}
+                    className={`flex items-start gap-3 p-3 rounded-lg border transition-all group
+                      ${task.done ? 'bg-white/[0.02] border-white/[0.04] opacity-50' : 'bg-white/[0.04] border-white/[0.07] hover:border-cyan-500/20'}`}
+                  >
+                    <button
+                      onClick={() => toggleTask(selectedKey, task.id)}
+                      className={`mt-0.5 w-4 h-4 shrink-0 rounded border flex items-center justify-center transition-all
+                        ${task.done ? 'bg-cyan-500/30 border-cyan-500/50 text-cyan-400' : 'border-white/20 hover:border-cyan-500/50'}`}
+                    >
+                      {task.done && <span className="text-[8px]">✓</span>}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      {task.time && <div className="text-[9px] font-mono text-cyan-400/50 mb-0.5">{task.time}</div>}
+                      <div className={`text-[12px] font-mono leading-snug ${task.done ? 'line-through text-white/30' : 'text-white/70'}`}>
+                        {task.text}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => deleteTask(selectedKey, task.id)}
+                      className="opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-400/70 transition-all text-xs mt-0.5 shrink-0"
+                    >✕</button>
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Add task */}
+          <div className="mt-4 pt-4 border-t border-white/[0.06]">
+            <div className="flex gap-2">
+              <input type="text" value={newTime} onChange={(e) => setNewTime(e.target.value)} placeholder="Time"
+                className="w-20 h-9 px-2 bg-white/[0.04] border border-white/[0.08] rounded-lg text-[11px] text-white font-mono placeholder:text-white/15 focus:outline-none focus:border-cyan-500/40 transition-colors" />
+              <input type="text" value={newTask} onChange={(e) => setNewTask(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addTask()} placeholder="Add a task…"
+                className="flex-1 h-9 px-3 bg-white/[0.04] border border-white/[0.08] rounded-lg text-[12px] text-white font-mono placeholder:text-white/15 focus:outline-none focus:border-cyan-500/40 transition-colors" />
+              <button onClick={addTask} disabled={!newTask.trim()}
+                className="h-9 px-3 bg-cyan-500/15 border border-cyan-500/30 rounded-lg text-cyan-400 text-[11px] font-mono hover:bg-cyan-500/25 transition-colors disabled:opacity-30">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Settings modal ─────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {settingsOpen && (
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) setSettingsOpen(false); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 16 }}
+              transition={{ duration: 0.2 }}
+              className="w-[540px] bg-[#0a0e1a] border border-white/10 rounded-xl p-7 shadow-2xl"
+            >
+              <div className="flex items-start justify-between mb-6">
+                <div>
+                  <h2 className="text-white font-mono text-sm font-semibold">Connect Google Calendar</h2>
+                  <p className="text-white/30 text-[10px] font-mono mt-1">Paste your iCal feed URL — no login required</p>
+                </div>
+                <button onClick={() => setSettingsOpen(false)} className="text-white/25 hover:text-white/60 transition-colors">✕</button>
+              </div>
+
+              {/* How to get the URL */}
+              <div className="mb-5 p-4 rounded-lg bg-white/[0.03] border border-white/[0.06] space-y-2">
+                <div className="text-[10px] font-mono text-white/50 font-semibold uppercase tracking-widest mb-3">How to get your iCal URL</div>
+                {[
+                  ['1', 'Open', 'calendar.google.com', 'in your browser'],
+                  ['2', 'Left sidebar → hover your calendar name → click', '⋮', '→ Settings and sharing'],
+                  ['3', 'Scroll down to', '"Integrate calendar"', 'section'],
+                  ['4', 'Copy', '"Public address in iCal format"', '(ends in .ics)'],
+                  ['5', 'Paste it below and click Save', '', ''],
+                ].map(([num, pre, highlight, post]) => (
+                  <div key={num} className="flex items-start gap-2 text-[10px] font-mono text-white/35">
+                    <span className="text-cyan-500/50 shrink-0 w-3">{num}.</span>
+                    <span>{pre} {highlight && <span className="text-white/55">{highlight}</span>} {post}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-[9px] font-mono text-white/40 uppercase tracking-widest">iCal Feed URL</label>
+                <input
+                  type="text"
+                  value={draftUrl}
+                  onChange={(e) => setDraftUrl(e.target.value)}
+                  placeholder="https://calendar.google.com/calendar/ical/you@gmail.com/public/basic.ics"
+                  className="w-full bg-white/[0.04] border border-white/10 rounded px-3 py-2.5 text-[11px] text-white font-mono focus:outline-none focus:border-cyan-500/50 transition-colors placeholder:text-white/15"
+                />
+                {icalError && <div className="text-[10px] font-mono text-red-400/70">{icalError}</div>}
+                {isConnected && (
+                  <div className="flex items-center gap-2 text-[10px] font-mono text-emerald-400/60">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    Calendar connected · {Object.values(icalEvents).flat().length} events loaded
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between mt-6 pt-5 border-t border-white/[0.05]">
+                {isConnected ? (
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem('jarvis_ical_url');
+                      setIcalUrl(''); setIcalEvents({}); setDraftUrl(''); setSettingsOpen(false);
+                    }}
+                    className="px-4 py-2 text-[10px] font-mono text-red-400/60 hover:text-red-400 transition-colors uppercase tracking-wider"
+                  >
+                    Disconnect
+                  </button>
+                ) : <div />}
+                <div className="flex gap-3">
+                  <button onClick={() => setSettingsOpen(false)} className="px-4 py-2 text-[10px] font-mono text-white/30 hover:text-white/50 transition-colors">Cancel</button>
+                  <button
+                    onClick={() => {
+                      const url = draftUrl.trim();
+                      if (!url) return;
+                      localStorage.setItem('jarvis_ical_url', url);
+                      setIcalUrl(url);
+                      setSettingsOpen(false);
+                    }}
+                    disabled={!draftUrl.trim()}
+                    className="px-5 py-2 text-[10px] font-mono bg-cyan-500/15 text-cyan-400 border border-cyan-500/35 rounded hover:bg-cyan-500/25 transition-colors uppercase tracking-wider disabled:opacity-30"
+                  >
+                    Save & Sync
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}

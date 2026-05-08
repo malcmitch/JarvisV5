@@ -7,6 +7,7 @@ import { JarvisAssistant } from "./components/JarvisAssistant";
 import { HUDLayer } from "./components/HUD/HUDLayer";
 import { IntroAnimation } from "./components/IntroAnimation";
 import { NewsPage } from "./components/pages/NewsPage";
+import { CalendarPage } from "./components/pages/CalendarPage";
 import { AnimatePresence } from 'framer-motion';
 
 // MapLibre GL JS accesses browser APIs on import — must be client-only (no SSR)
@@ -15,7 +16,7 @@ const MapPage = dynamic(
   { ssr: false }
 );
 
-type JarvisPage = 'home' | 'news' | 'map';
+type JarvisPage = 'home' | 'news' | 'map' | 'calendar';
 
 export default function Home() {
   const [showIntro, setShowIntro]         = useState(false);
@@ -39,7 +40,7 @@ export default function Home() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const detail = (e as CustomEvent<any>).detail ?? {};
       const page: JarvisPage = detail.page;
-      if (page === 'home' || page === 'news' || page === 'map') {
+      if (page === 'home' || page === 'news' || page === 'map' || page === 'calendar') {
         setCurrentPage(page);
         if (page === 'map' && detail.mapCommand) {
           setPendingMapCmd(detail.mapCommand);
@@ -80,6 +81,9 @@ export default function Home() {
             pendingCommand={pendingMapCmd}
             onPendingCommandConsumed={() => setPendingMapCmd(null)}
           />
+        )}
+        {currentPage === 'calendar' && (
+          <CalendarPage key="calendar" onNavigateHome={() => setCurrentPage('home')} />
         )}
       </AnimatePresence>
 

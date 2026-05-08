@@ -934,8 +934,9 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       type: 'function',
       name: 'navigate_to_page',
       description:
-        'Navigate Jarvis to a different page. Use for "home" or "news" only. ' +
+        'Navigate Jarvis to a different page. Use for "home", "news", or "calendar" only. ' +
         '"news" opens the live news feed with streaming video and market data. ' +
+        '"calendar" opens the calendar and task planner. ' +
         '"home" returns to the main Jarvis home screen. ' +
         'NEVER use this for map or location requests — use map_command instead.',
       parameters: {
@@ -943,8 +944,8 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         properties: {
           page: {
             type: 'string',
-            enum: ['home', 'news'],
-            description: '"home" = main Jarvis view. "news" = live news + stocks feed.',
+            enum: ['home', 'news', 'calendar'],
+            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner.',
           },
         },
         required: ['page'],
@@ -974,6 +975,59 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
             instruction: 'The news page is open. Let the user know you have opened the news feed.',
           };
         }
+      }
+
+      if (page === 'calendar') {
+        // Fetch upcoming events from the iCal feed so Jarvis can summarize
+        try {
+          const icalUrl = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ical_url') : null;
+          const localTasksRaw = typeof window !== 'undefined' ? localStorage.getItem('jarvis_calendar_tasks') : null;
+          const localTasks = localTasksRaw ? JSON.parse(localTasksRaw) as Record<string, { text: string; time?: string; done: boolean }[]> : {};
+
+          // Collect upcoming 7 days of local tasks
+          const upcoming: string[] = [];
+          for (let i = 0; i < 7; i++) {
+            const d = new Date(); d.setDate(d.getDate() + i);
+            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const dayLabel = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+            const dayTasks = (localTasks[key] ?? []).filter(t => !t.done);
+            if (dayTasks.length > 0) {
+              upcoming.push(`${dayLabel}: ${dayTasks.map(t => (t.time ? `${t.time} ${t.text}` : t.text)).join(', ')}`);
+            }
+          }
+
+          // Also fetch Google Calendar events if URL is set
+          if (icalUrl) {
+            const res = await fetch(`/api/ical?url=${encodeURIComponent(icalUrl)}`);
+            const data = (await res.json()) as { events?: { title: string; start: string; allDay: boolean }[] };
+            const now = new Date();
+            const weekLater = new Date(); weekLater.setDate(weekLater.getDate() + 7);
+            const gcalUpcoming = (data.events ?? [])
+              .filter(ev => { const d = new Date(ev.start); return d >= now && d <= weekLater; })
+              .slice(0, 10)
+              .map(ev => {
+                const d = new Date(ev.start);
+                const label = ev.allDay ? d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+                  : d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + ' at ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                return `${label}: ${ev.title}`;
+              });
+            upcoming.push(...gcalUpcoming);
+          }
+
+          if (upcoming.length > 0) {
+            return {
+              success: true,
+              navigated_to: page,
+              upcoming_schedule: upcoming.join('\n'),
+              instruction: 'The calendar page is now open. Briefly tell the user what is coming up on their schedule in the next few days in a natural, conversational way. Be concise.',
+            };
+          }
+        } catch { /* fall through */ }
+        return {
+          success: true,
+          navigated_to: page,
+          instruction: 'The calendar page is open. Let the user know their calendar is ready and ask if they need to add anything.',
+        };
       }
 
       return { success: true, navigated_to: page };
@@ -1052,6 +1106,118 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       };
 
       return { success: true, message: desc[command] ?? `Map command "${command}" sent.` };
+    },
+  },
+  {
+    name: 'calendar_command',
+    label: 'Calendar',
+    description: 'Open the Jarvis calendar and manage tasks — add, complete, or list tasks for any day',
+    tool: {
+      type: 'function',
+      name: 'calendar_command',
+      description:
+        'Open the Jarvis Calendar page and manage tasks or answer questions about the schedule. ' +
+        'Use for ANY calendar or schedule question: viewing upcoming events, adding tasks, marking things done, or checking availability. ' +
+        'Examples: "add a meeting at 3pm tomorrow" → add_task. "what do I have today?" → list_tasks. "what\'s on my schedule this week?" → get_upcoming. "am I free Friday?" → get_upcoming. "mark gym as done" → complete_task.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+            enum: ['add_task', 'complete_task', 'list_tasks', 'clear_tasks', 'go_to_date', 'get_upcoming'],
+            description:
+              'add_task: add a new task to a day. ' +
+              'complete_task: mark a task done by text match. ' +
+              'list_tasks: get full schedule for a specific day (local tasks + Google events). ' +
+              'get_upcoming: get all events for the next 7 days — use this to answer questions like "what do I have this week?" or "am I free on Thursday?". ' +
+              'clear_tasks: remove all local tasks for a day. ' +
+              'go_to_date: navigate the calendar view to a specific date.',
+          },
+          date: {
+            type: 'string',
+            description: 'ISO date string YYYY-MM-DD. Omit for today.',
+          },
+          text: {
+            type: 'string',
+            description: 'Task text to add, or partial text to match when completing.',
+          },
+          time: {
+            type: 'string',
+            description: 'Optional time label for the task, e.g. "3:00 PM".',
+          },
+        },
+        required: ['command'],
+      },
+    },
+    handler: async (args) => {
+      const command = args.command as string;
+
+      // Navigate to calendar page
+      window.dispatchEvent(new CustomEvent('jarvis:navigate', { detail: { page: 'calendar' } }));
+
+      // Helper: build a combined schedule for a date key
+      const getScheduleForKey = async (dateKey: string): Promise<string> => {
+        const lines: string[] = [];
+        // Local tasks
+        try {
+          const store = JSON.parse(localStorage.getItem('jarvis_calendar_tasks') ?? '{}') as Record<string, { text: string; time?: string; done: boolean }[]>;
+          const tasks = (store[dateKey] ?? []);
+          for (const t of tasks) lines.push(`${t.time ? t.time + ' — ' : ''}${t.text}${t.done ? ' (done)' : ''}`);
+        } catch { /* ignore */ }
+        // iCal events
+        try {
+          const icalUrl = localStorage.getItem('jarvis_ical_url');
+          if (icalUrl) {
+            const res = await fetch(`/api/ical?url=${encodeURIComponent(icalUrl)}`);
+            const data = (await res.json()) as { events?: { title: string; start: string; allDay: boolean }[] };
+            for (const ev of (data.events ?? []).filter(e => e.start.slice(0,10) === dateKey)) {
+              const time = ev.allDay ? 'All day' : new Date(ev.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+              lines.push(`${time} — ${ev.title} (Google)`);
+            }
+          }
+        } catch { /* ignore */ }
+        return lines.join('\n');
+      };
+
+      if (command === 'list_tasks') {
+        const key = (args.date as string) ?? new Date().toISOString().split('T')[0];
+        const schedule = await getScheduleForKey(key);
+        if (!schedule) return { success: true, instruction: 'There is nothing scheduled for that day.' };
+        return {
+          success: true,
+          schedule,
+          instruction: `Read out this schedule naturally and conversationally: ${schedule}`,
+        };
+      }
+
+      if (command === 'get_upcoming') {
+        // Return next 7 days for Jarvis to answer any question
+        const upcoming: string[] = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(); d.setDate(d.getDate() + i);
+          const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+          const sched = await getScheduleForKey(key);
+          if (sched) upcoming.push(`${label}:\n${sched}`);
+        }
+        const summary = upcoming.length ? upcoming.join('\n\n') : 'Nothing scheduled in the next 7 days.';
+        return { success: true, upcoming: summary, instruction: `Answer the user's question using this schedule data:\n${summary}` };
+      }
+
+      // For all other commands, dispatch to CalendarPage via jarvis:calendar event
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('jarvis:calendar', {
+          detail: { type: command, ...args },
+        }));
+      }, 400);
+
+      const desc: Record<string, string> = {
+        add_task:      `Added "${args.text ?? ''}"${args.date ? ` on ${args.date}` : ' for today'}.`,
+        complete_task: `Marked "${args.text ?? ''}" as done.`,
+        clear_tasks:   `Cleared all tasks${args.date ? ` for ${args.date}` : ' for today'}.`,
+        go_to_date:    `Navigated calendar to ${args.date ?? 'today'}.`,
+      };
+      return { success: true, message: desc[command] ?? 'Calendar updated.' };
     },
   },
 ];
