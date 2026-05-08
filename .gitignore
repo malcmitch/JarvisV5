@@ -27,3 +27,7 @@ npm-debug.log*
 
 # TypeScript incremental
 *.tsbuildinfo
+
+# Config files (may contain API keys)
+jarvis-mcp.config.json
+jarvis-skills.config.json

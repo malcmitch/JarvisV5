@@ -1,0 +1,75 @@
+{
+  "_comment": "Jarvis MCP Configuration — Copy this file to jarvis-mcp.config.json and customize.",
+  "mcpServers": {
+    "filesystem": {
+      "_comment": "Filesystem access — allows Jarvis to read / write / list files in allowed directories.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/home/username/Desktop",
+        "/home/username/Documents"
+      ],
+      "env": {}
+    },
+    "github": {
+      "_comment": "GitHub API access — requires a GitHub personal access token with repo scope.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "ghp_your_github_token_here"
+      }
+    },
+    "sqlite": {
+      "_comment": "SQLite database exploration — allows querying local SQLite databases.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "/path/to/your/database.db"
+      ],
+      "env": {}
+    },
+    "fetch": {
+      "_comment": "Web fetching — allows Jarvis to fetch URLs and read web content.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-fetch"
+      ],
+      "env": {}
+    },
+    "playwright": {
+      "_comment": "Browser automation — allows Jarvis to take screenshots, click elements, and interact with web pages.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-playwright"
+      ],
+      "env": {}
+    },
+    "brave-search": {
+      "_comment": "Web search via Brave Search API — requires a Brave Search API key.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "your_brave_api_key_here"
+      }
+    },
+    "memory": {
+      "_comment": "Persistent knowledge graph memory — Jarvis can store and recall structured information across sessions.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {}
+    }
+  }
+}

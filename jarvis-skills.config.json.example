@@ -1,0 +1,240 @@
+{
+  "_comment": "Jarvis Skills Configuration — Copy this file to jarvis-skills.config.json and customize.",
+  "skills": [
+    {
+      "name": "code",
+      "description": "Code analysis and review capabilities via MCP tools",
+      "tools": [
+        {
+          "name": "read_file",
+          "label": "Read File",
+          "description": "Read the contents of a file from the filesystem",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Absolute path to the file to read"
+              }
+            },
+            "required": ["path"]
+          },
+          "handler": {
+            "type": "mcp",
+            "server": "filesystem",
+            "tool": "read"
+          }
+        },
+        {
+          "name": "list_directory",
+          "label": "List Directory",
+          "description": "List files and directories at a specified path",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Absolute path to the directory"
+              }
+            },
+            "required": ["path"]
+          },
+          "handler": {
+            "type": "mcp",
+            "server": "filesystem",
+            "tool": "list_directory"
+          }
+        },
+        {
+          "name": "write_file",
+          "label": "Write File",
+          "description": "Write content to a file on the filesystem",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Absolute path to the file to write"
+              },
+              "content": {
+                "type": "string",
+                "description": "The content to write to the file"
+              }
+            },
+            "required": ["path", "content"]
+          },
+          "handler": {
+            "type": "mcp",
+            "server": "filesystem",
+            "tool": "write"
+          }
+        },
+        {
+          "name": "search_code",
+          "label": "Search Code",
+          "description": "Search for code patterns in a GitHub repository",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "GitHub code search query"
+              },
+              "repo": {
+                "type": "string",
+                "description": "Repository to search in (e.g. 'owner/repo')"
+              }
+            },
+            "required": ["query"]
+          },
+          "handler": {
+            "type": "mcp",
+            "server": "github",
+            "tool": "search_code"
+          }
+        }
+      ]
+    },
+    {
+      "name": "web",
+      "description": "Web browsing and data fetching capabilities",
+      "tools": [
+        {
+          "name": "fetch_url",
+          "label": "Fetch URL",
+          "description": "Fetch content from a URL and return it as text",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "The URL to fetch"
+              }
+            },
+            "required": ["url"]
+          },
+          "handler": {
+            "type": "mcp",
+            "server": "fetch",
+            "tool": "fetch"
+          }
+        },
+        {
+          "name": "browser_screenshot",
+          "label": "Take Screenshot",
+          "description": "Take a screenshot of a web page using Playwright",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "The URL to screenshot"
+              },
+              "width": {
+                "type": "number",
+                "description": "Viewport width (default: 1280)"
+              },
+              "height": {
+                "type": "number",
+                "description": "Viewport height (default: 720)"
+              }
+            },
+            "required": ["url"]
+          },
+          "handler": {
+            "type": "mcp",
+            "server": "playwright",
+            "tool": "screenshot"
+          }
+        },
+        {
+          "name": "web_search",
+          "label": "Web Search",
+          "description": "Search the web using the Brave Search API",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "The search query"
+              }
+            },
+            "required": ["query"]
+          },
+          "handler": {
+            "type": "mcp",
+            "server": "brave-search",
+            "tool": "brave_web_search"
+          }
+        }
+      ]
+    },
+    {
+      "name": "system",
+      "description": "System-level operations via shell commands",
+      "tools": [
+        {
+          "name": "disk_usage",
+          "label": "Disk Usage",
+          "description": "Check disk usage on the system",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          },
+          "handler": {
+            "type": "shell",
+            "command": "df -h"
+          }
+        },
+        {
+          "name": "memory_usage",
+          "label": "Memory Usage",
+          "description": "Check system memory usage",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          },
+          "handler": {
+            "type": "shell",
+            "command": "free -h"
+          }
+        },
+        {
+          "name": "uptime",
+          "label": "System Uptime",
+          "description": "Check how long the system has been running",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          },
+          "handler": {
+            "type": "shell",
+            "command": "uptime"
+          }
+        },
+        {
+          "name": "list_processes",
+          "label": "List Processes",
+          "description": "List the top resource-consuming processes on the system",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "number",
+                "description": "Number of processes to show (default: 10)"
+              }
+            },
+            "required": []
+          },
+          "handler": {
+            "type": "shell",
+            "command": "ps aux --sort=-%mem | head -n ${limit:-10}"
+          }
+        }
+      ]
+    }
+  ]
+}

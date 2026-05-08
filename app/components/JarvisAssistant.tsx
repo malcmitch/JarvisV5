@@ -5,7 +5,8 @@ import { useConversation } from '@elevenlabs/react';
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
 import { SettingsModal, JarvisSettings } from './SettingsModal';
-import { FUNCTION_REGISTRY, getFunctionByName } from '../lib/functions';
+import { FUNCTION_REGISTRY, getFunctionByName, JarvisFunction } from '../lib/functions';
+import { loadDynamicFunctions, createGetFunctionByName, DynamicFunctionState } from '../lib/dynamic-functions';
 import { XrayWidget } from './XrayWidget';
 import { CameraWidget } from './CameraWidget';
 import { ArcReactorVisualizer } from './visualizers/ArcReactorVisualizer';
@@ -34,6 +35,7 @@ const DEFAULT_SETTINGS: JarvisSettings = {
 
 export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   const [status, setStatus] = useState<'idle' | 'listening' | 'active' | 'error'>('idle');
+  const [lastError, setLastError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [fftData, setFftData] = useState<number[]>(new Array(FFT_BARS).fill(0));
   const statusRef = useRef(status);
@@ -50,26 +52,37 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const elPollRef = useRef<number | null>(null);
 
-  // Map every entry in FUNCTION_REGISTRY to an ElevenLabs clientTools handler.
-  // As tools are added to the ElevenLabs agent dashboard they'll automatically work.
+  // Dynamic function state — starts unloaded; gates auto-start.
+  const [dynamicState, setDynamicState] = useState<DynamicFunctionState>({
+    allFunctions: FUNCTION_REGISTRY,
+    mcpFunctions: [],
+    skillFunctions: [],
+    loaded: false,
+    loadError: null,
+  });
+  const dynamicGetFunctionByNameRef = useRef<(name: string) => JarvisFunction | undefined>(getFunctionByName);
+
+  // Ref-based ElevenLabs clientTools so dynamic functions are included at runtime.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const elClientTools: Record<string, (params: any) => any> = Object.fromEntries(
-    FUNCTION_REGISTRY.map((fn) => [
-      fn.name,
-      async (params: Record<string, unknown>) => {
-        const result = await fn.handler(params);
-        const r = result as Record<string, unknown> | null;
-        if (typeof r?.error === 'string') {
-          emitError('function', `${fn.name}(): ${r.error}`, 'error');
-        }
-        return result;
-      },
-    ])
+  const elClientToolsRef = useRef<Record<string, (params: any) => any>>(
+    Object.fromEntries(
+      FUNCTION_REGISTRY.map((fn) => [
+        fn.name,
+        async (params: Record<string, unknown>) => {
+          const result = await fn.handler(params);
+          const r = result as Record<string, unknown> | null;
+          if (typeof r?.error === 'string') {
+            emitError('function', `${fn.name}(): ${r.error}`, 'error');
+          }
+          return result;
+        },
+      ]),
+    ),
   );
 
   // ElevenLabs Conversational AI hook
   const elConversation = useConversation({
-    clientTools: elClientTools,
+    clientTools: elClientToolsRef.current,
     onConnect: () => {
       console.log('ElevenLabs connected');
       setStatus('active');
@@ -302,6 +315,50 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     }
   }, []);
 
+  // Load dynamic functions (MCP + Skills) on mount — runs before auto-start.
+  useEffect(() => {
+    loadDynamicFunctions().then((state) => {
+      setDynamicState(state);
+      dynamicGetFunctionByNameRef.current = createGetFunctionByName(state.allFunctions);
+
+      // Seed enabledFunctions with new MCP/Skill tool names
+      if (state.mcpFunctions.length > 0 || state.skillFunctions.length > 0) {
+        setSettings((prev) => {
+          const existingEnabled = new Set(prev.enabledFunctions);
+          const newTools = [...state.mcpFunctions, ...state.skillFunctions]
+            .filter((f) => !existingEnabled.has(f.name))
+            .map((f) => f.name);
+          if (newTools.length === 0) return prev;
+          const updated = {
+            ...prev,
+            enabledFunctions: [...prev.enabledFunctions, ...newTools],
+          };
+          localStorage.setItem('jarvis_settings', JSON.stringify(updated));
+          return updated;
+        });
+      }
+    });
+  }, []);
+
+  // Keep elClientToolsRef in sync with dynamic function state
+  useEffect(() => {
+    const fns = dynamicState.loaded ? dynamicState.allFunctions : FUNCTION_REGISTRY;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    elClientToolsRef.current = Object.fromEntries(
+      fns.map((fn) => [
+        fn.name,
+        async (params: Record<string, unknown>) => {
+          const result = await fn.handler(params);
+          const r = result as Record<string, unknown> | null;
+          if (typeof r?.error === 'string') {
+            emitError('function', `${fn.name}(): ${r.error}`, 'error');
+          }
+          return result;
+        },
+      ]),
+    );
+  }, [dynamicState.loaded, dynamicState.allFunctions]);
+
   // Continuous rotation for rings
   useEffect(() => {
     const rotate = () => {
@@ -463,6 +520,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
 
       disconnect(); // Ensure clean slate
       setStatus('listening');
+      setLastError(null);
       
       // Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -524,7 +582,8 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       dc.onopen = () => {
         console.log('WebRTC data channel open');
 
-        const enabledTools = FUNCTION_REGISTRY
+        const allFunctions = dynamicState.loaded ? dynamicState.allFunctions : FUNCTION_REGISTRY;
+        const enabledTools = allFunctions
           .filter((fn) => currentSettings.enabledFunctions.includes(fn.name))
           .map((fn) => fn.tool);
 
@@ -572,7 +631,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
             const fnName = data.name as string;
             const rawArgs = data.arguments as string;
 
-            const fn = getFunctionByName(fnName);
+            const fn = dynamicGetFunctionByNameRef.current(fnName);
             if (!fn) return;
 
             let parsedArgs: Record<string, unknown> = {};
@@ -636,6 +695,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     } catch (error) {
       console.error('Error starting realtime:', error);
       setStatus('error');
+      setLastError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -656,6 +716,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
         remoteStreamRef.current = null;
       }
       setStatus('listening');
+      setLastError(null);
 
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -679,6 +740,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     } catch (error) {
       console.error('Error starting ElevenLabs session:', error);
       setStatus('error');
+      setLastError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -710,7 +772,10 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   }
 
   // Auto-start on mount / mode change / explicit restart
+  // Gates on dynamicState.loaded to prevent race between tool loading and session start.
   useEffect(() => {
+    if (!dynamicState.loaded) return;
+
     const mode = settings.apiMode ?? 'openai';
     const shouldStart =
       (mode === 'elevenlabs' && !!settings.elevenLabsAgentId?.trim()) ||
@@ -719,7 +784,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       start(settings);
     }
     return () => disconnect();
-  }, [settings.apiKey, settings.apiMode, restartTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [settings.apiKey, settings.apiMode, restartTrigger, dynamicState.loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveSettings = (newSettings: JarvisSettings) => {
     setSettings(newSettings);
@@ -977,7 +1042,14 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
                 ) : status === 'active' ? (
                   'J.A.R.V.I.S. is online. Click status to disconnect.'
                 ) : status === 'error' ? (
-                  'Connection error. Check Settings.'
+                  <>
+                    Connection error. Check Settings.
+                    {lastError && (
+                      <span className="block mt-1 text-xs text-red-400/80 font-mono break-all">
+                        {lastError}
+                      </span>
+                    )}
+                  </>
                 ) : status === 'idle' ? (
                   'Click status to activate'
                 ) : !settings.apiKey ? (
@@ -1027,6 +1099,9 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
             onClose={() => setIsSettingsOpen(false)}
             onSave={handleSaveSettings}
             initialSettings={settings}
+            dynamicFunctions={dynamicState.mcpFunctions.length > 0 || dynamicState.skillFunctions.length > 0
+              ? [...dynamicState.mcpFunctions, ...dynamicState.skillFunctions]
+              : []}
           />
         )}
       </AnimatePresence>

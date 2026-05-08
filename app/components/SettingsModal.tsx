@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { FUNCTION_REGISTRY } from '../lib/functions';
+import { FUNCTION_REGISTRY, JarvisFunction } from '../lib/functions';
 import { sfx } from '../lib/sfx';
 
 interface SettingsModalProps {
@@ -10,6 +10,7 @@ interface SettingsModalProps {
   onClose: () => void;
   onSave: (settings: JarvisSettings) => void;
   initialSettings: JarvisSettings;
+  dynamicFunctions?: JarvisFunction[];
 }
 
 export type JarvisTheme = 'arc-reactor' | 'midnight' | 'crimson' | 'matrix';
@@ -76,7 +77,7 @@ const GRID_OPTIONS: { id: JarvisGrid; label: string }[] = [
   { id: 'large',  label: 'Large'  },
 ];
 
-export function SettingsModal({ isOpen, onClose, onSave, initialSettings }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynamicFunctions = [] }: SettingsModalProps) {
   const [settings, setSettings] = useState<JarvisSettings>(initialSettings);
   const [activeTab, setActiveTab] = useState<Tab>('jarvis');
   const [diagLoading, setDiagLoading] = useState(false);
@@ -383,6 +384,50 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings }: Sett
                   );
                 })}
               </div>
+
+              {dynamicFunctions.length > 0 && (
+                <>
+                  <div className="mt-4 mb-2 border-t border-cyan-500/20 pt-4">
+                    <p className="text-xs font-bold text-cyan-500 uppercase tracking-widest">MCP &amp; Skills</p>
+                    <p className="text-[10px] text-cyan-700 mt-1">External tools loaded from configuration.</p>
+                  </div>
+                  {dynamicFunctions.map((fn) => {
+                    const enabled = settings.enabledFunctions.includes(fn.name);
+                    const isMcp = fn.description.includes('MCP');
+                    return (
+                      <div key={fn.name} className="flex items-center justify-between px-4 py-3 rounded border border-cyan-500/20 bg-cyan-950/10">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm text-cyan-300 font-semibold">{fn.label}</p>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-500 border border-cyan-500/30 uppercase font-mono">
+                              {isMcp ? 'MCP' : 'Skill'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-cyan-600 mt-0.5 truncate">{fn.description}</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            sfx('click_sfx', 0.5);
+                            setSettings({
+                              ...settings,
+                              enabledFunctions: enabled
+                                ? settings.enabledFunctions.filter((n) => n !== fn.name)
+                                : [...settings.enabledFunctions, fn.name],
+                            });
+                          }}
+                          className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ml-4 ${
+                            enabled ? 'bg-cyan-500' : 'bg-cyan-900/60'
+                          }`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                            enabled ? 'translate-x-5' : 'translate-x-0'
+                          }`} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </div>
           )}
 
