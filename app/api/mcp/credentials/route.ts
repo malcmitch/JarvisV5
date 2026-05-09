@@ -1,0 +1,118 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { GOOGLE_CALENDAR_CREDENTIALS_DIR } from '@/app/lib/mcp/dynamic-config';
+import path from 'path';
+import fs from 'fs';
+
+const CRED_PATH = path.join(GOOGLE_CALENDAR_CREDENTIALS_DIR, 'credentials.json');
+
+export async function GET() {
+  try {
+    if (!fs.existsSync(CRED_PATH)) {
+      return NextResponse.json({ exists: false });
+    }
+
+    const raw = fs.readFileSync(CRED_PATH, 'utf-8');
+    let parsed: Record<string, unknown> | null = null;
+    let isValid = false;
+    let projectInfo: Record<string, unknown> = {};
+
+    try {
+      parsed = JSON.parse(raw);
+      const installed = parsed?.installed as Record<string, unknown> | undefined;
+      if (installed && installed.client_id && typeof installed.client_id === 'string') {
+        isValid = true;
+        projectInfo = {
+          client_id: (installed.client_id as string).substring(0, 20) + '...',
+          project_id: installed.project_id || null,
+          auth_uri: installed.auth_uri || null,
+        };
+      }
+    } catch {
+      void 0;
+    }
+
+    return NextResponse.json({
+      exists: true,
+      isValid,
+      projectInfo: isValid ? projectInfo : null,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { content } = body as { content: string };
+
+    if (!content) {
+      return NextResponse.json(
+        { error: 'Missing credentials content' },
+        { status: 400 },
+      );
+    }
+
+    if (content.length > 1_000_000) {
+      return NextResponse.json(
+        { error: 'File too large — credentials.json should be under 1MB' },
+        { status: 413 },
+      );
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      return NextResponse.json(
+        { error: 'Invalid JSON — please upload a valid credentials.json file' },
+        { status: 400 },
+      );
+    }
+
+    const installed = parsed?.installed as Record<string, unknown> | undefined;
+    if (!installed || !installed.client_id || !installed.client_secret) {
+      return NextResponse.json(
+        { error: 'Invalid credentials format — expected a Desktop app OAuth credentials file with "installed" object containing client_id and client_secret' },
+        { status: 400 },
+      );
+    }
+
+    if (!fs.existsSync(GOOGLE_CALENDAR_CREDENTIALS_DIR)) {
+      fs.mkdirSync(GOOGLE_CALENDAR_CREDENTIALS_DIR, { recursive: true });
+    }
+
+    fs.writeFileSync(CRED_PATH, content, 'utf-8');
+
+    return NextResponse.json({
+      success: true,
+      message: 'Credentials saved successfully',
+      projectId: (installed.project_id as string) || null,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE() {
+  try {
+    if (fs.existsSync(CRED_PATH)) {
+      fs.unlinkSync(CRED_PATH);
+    }
+    return NextResponse.json({
+      success: true,
+      message: 'Credentials removed',
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
+}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ICalEvent } from '../../api/ical/route';
+import { GoogleCalendarWizard } from '../wizards/GoogleCalendarWizard';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -81,7 +82,51 @@ export function CalendarPage({ onNavigateHome }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftUrl, setDraftUrl] = useState('');
 
+  // Google Calendar MCP wizard state
+  const [showWizard, setShowWizard] = useState(false);
+  const [gcalConfigured, setGcalConfigured] = useState(false);
+  const [checkingConfig, setCheckingConfig] = useState(true);
+  const [gcalTools, setGcalTools] = useState(0);
+
   const isConnected = !!icalUrl;
+
+  // Check if Google Calendar MCP is configured on mount
+  useEffect(() => {
+    const checkConfig = async () => {
+      try {
+        const res = await fetch('/api/mcp/dynamic');
+        const data = await res.json();
+        setGcalConfigured(data.configured && data.connected);
+        setGcalTools(data.tools ?? 0);
+        // Auto-show wizard only if not configured AND user hasn't dismissed it
+        if (!data.configured) {
+          const skipped = localStorage.getItem('jarvis_gcal_wizard_skipped');
+          if (!skipped) {
+            setShowWizard(true);
+          }
+        }
+      } catch {
+        // API not available, don't show wizard
+      } finally {
+        setCheckingConfig(false);
+      }
+    };
+    checkConfig();
+  }, []);
+
+  const handleWizardComplete = () => {
+    setShowWizard(false);
+    setGcalConfigured(true);
+  };
+
+  const handleWizardSkip = () => {
+    setShowWizard(false);
+    localStorage.setItem('jarvis_gcal_wizard_skipped', 'true');
+  };
+
+  const handleWizardBack = () => {
+    setShowWizard(false);
+  };
 
   // ── Fetch iCal events ──────────────────────────────────────────────────────
 
@@ -190,14 +235,23 @@ export function CalendarPage({ onNavigateHome }: Props) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <motion.div
-      key="calendar-page"
-      className="fixed inset-0 bg-[#050810] z-[50] overflow-hidden flex flex-col"
-      initial={{ x: '100%', filter: 'blur(24px)', opacity: 0 }}
-      animate={{ x: 0, filter: 'blur(0px)', opacity: 1 }}
-      exit={{ x: '-100%', filter: 'blur(24px)', opacity: 0 }}
-      transition={{ duration: 0.65, ease: [0.4, 0, 0.2, 1] }}
-    >
+    <AnimatePresence mode="wait">
+      {showWizard ? (
+        <GoogleCalendarWizard
+          key="gcal-wizard"
+          onComplete={handleWizardComplete}
+          onSkip={handleWizardSkip}
+          onBack={handleWizardBack}
+        />
+      ) : (
+        <motion.div
+          key="calendar-page"
+          className="fixed inset-0 bg-[#050810] z-[50] overflow-hidden flex flex-col"
+          initial={{ x: '100%', filter: 'blur(24px)', opacity: 0 }}
+          animate={{ x: 0, filter: 'blur(0px)', opacity: 1 }}
+          exit={{ x: '-100%', filter: 'blur(24px)', opacity: 0 }}
+          transition={{ duration: 0.65, ease: [0.4, 0, 0.2, 1] }}
+        >
       {/* HUD corners */}
       {['top-0 left-0 border-t-2 border-l-2','top-0 right-0 border-t-2 border-r-2',
         'bottom-0 left-0 border-b-2 border-l-2','bottom-0 right-0 border-b-2 border-r-2'].map((cls,i) => (
@@ -214,12 +268,19 @@ export function CalendarPage({ onNavigateHome }: Props) {
           <button
             onClick={() => { setDraftUrl(icalUrl); setSettingsOpen(true); }}
             className={`flex items-center gap-1.5 px-3 h-7 rounded-lg border text-[9px] font-mono uppercase tracking-wider transition-all
-              ${isConnected
+              ${isConnected || gcalConfigured
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
                 : 'bg-white/[0.04] border-white/[0.08] text-white/30 hover:text-white/50 hover:border-white/15'}`}
           >
-            <div className={`w-1 h-1 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-white/20'}`} />
-            {isConnected ? 'Google Calendar Connected' : 'Connect Google Calendar'}
+            <div className={`w-1 h-1 rounded-full ${isConnected || gcalConfigured ? 'bg-emerald-400' : 'bg-white/20'}`} />
+            {isConnected || gcalConfigured ? 'Google Calendar Connected' : 'Connect Google Calendar'}
+          </button>
+          <button
+            onClick={() => setShowWizard(true)}
+            className="flex items-center gap-1.5 px-3 h-7 rounded-lg border border-cyan-500/25 bg-cyan-500/[0.06] text-cyan-400/80 hover:bg-cyan-500/[0.12] hover:border-cyan-500/40 transition-all text-[9px] font-mono uppercase tracking-wider"
+          >
+            <div className="w-1 h-1 rounded-full bg-cyan-400" />
+            MCP Setup
           </button>
           {icalLoading && <span className="text-[9px] font-mono text-white/20 animate-pulse">Syncing…</span>}
           {icalError   && <span className="text-[9px] font-mono text-red-400/60">{icalError}</span>}
@@ -296,10 +357,12 @@ export function CalendarPage({ onNavigateHome }: Props) {
               <div className="w-1.5 h-1.5 rounded-full bg-cyan-400/50" />
               <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">Local tasks</span>
             </div>
-            {isConnected && (
+            {(isConnected || gcalConfigured) && (
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-violet-400/60" />
-                <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">Google events</span>
+                <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">
+                  {gcalConfigured ? `Google MCP (${gcalTools} tools)` : 'Google events'}
+                </span>
               </div>
             )}
           </div>
@@ -492,5 +555,7 @@ export function CalendarPage({ onNavigateHome }: Props) {
         )}
       </AnimatePresence>
     </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

@@ -13,38 +13,56 @@ import {
 } from './types';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const MCP_PROTOCOL_VERSION = '2025-03-26';
 
-function resolveConfigPath(): string | null {
-  const candidates = [
-    path.join(process.cwd(), 'jarvis-mcp.config.json'),
-    path.join(process.cwd(), '..', 'jarvis-mcp.config.json'),
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return null;
+function getDynamicConfigPath(): string {
+  return path.join(os.homedir(), '.jarvis', 'mcp-dynamic.json');
 }
 
 function loadConfig(): McpConfig {
-  const configPath = resolveConfigPath();
-  if (!configPath) {
-    console.log('[mcp] No config file found, skipping MCP initialization');
-    return { mcpServers: {} };
-  }
+  const dynamicPath = getDynamicConfigPath();
+  const mcpServers: Record<string, McpServerConfig> = {};
+
+  // 1. Load from ~/.jarvis/mcp-dynamic.json (user config — survives restart)
   try {
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(raw) as McpConfig;
-    console.log(
-      `[mcp] Loaded config: ${Object.keys(config.mcpServers).length} server(s) defined`,
-    );
-    return config;
+    const dir = path.dirname(dynamicPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (fs.existsSync(dynamicPath)) {
+      const raw = fs.readFileSync(dynamicPath, 'utf-8');
+      const config = JSON.parse(raw) as McpConfig;
+      Object.assign(mcpServers, config.mcpServers);
+      console.log(`[mcp] Loaded ${Object.keys(config.mcpServers).length} server(s) from user config`);
+    }
   } catch (err) {
-    console.error('[mcp] Failed to load config:', err);
-    return { mcpServers: {} };
+    console.error('[mcp] Failed to load user config:', err);
   }
+
+  // 2. Also load from project root jarvis-mcp.config.json if it exists (dev convenience)
+  const projectCandidates = [
+    path.join(process.cwd(), 'jarvis-mcp.config.json'),
+    path.join(process.cwd(), '..', 'jarvis-mcp.config.json'),
+  ];
+  for (const p of projectCandidates) {
+    if (fs.existsSync(p)) {
+      try {
+        const raw = fs.readFileSync(p, 'utf-8');
+        const config = JSON.parse(raw) as McpConfig;
+        // Project config OVERRIDES user config for same-named servers (dev convenience)
+        Object.assign(mcpServers, config.mcpServers);
+        console.log(`[mcp] Merged ${Object.keys(config.mcpServers).length} server(s) from project config`);
+      } catch (err) {
+        console.error('[mcp] Failed to load project config:', err);
+      }
+      break;
+    }
+  }
+
+  return { mcpServers };
 }
 
 export class McpServerManager {
@@ -95,7 +113,7 @@ export class McpServerManager {
     );
   }
 
-  private async connectServer(
+  public async connectServer(
     name: string,
     config: McpServerConfig,
   ): Promise<void> {
@@ -383,6 +401,64 @@ export class McpServerManager {
     return statuses;
   }
 
+  hasServer(name: string): boolean {
+    return this.servers.has(name);
+  }
+
+  getServer(name: string): McpServerState | undefined {
+    return this.servers.get(name);
+  }
+
+  async addServerConfig(name: string, config: McpServerConfig): Promise<void> {
+    const servers: Record<string, McpServerConfig> = {};
+    const dynamicPath = getDynamicConfigPath();
+    const dir = path.dirname(dynamicPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (fs.existsSync(dynamicPath)) {
+      try {
+        const raw = fs.readFileSync(dynamicPath, 'utf-8');
+        const existing = JSON.parse(raw) as McpConfig;
+        Object.assign(servers, existing.mcpServers);
+      } catch (err) {
+        console.error('[mcp] Failed to read dynamic config:', err);
+      }
+    }
+    servers[name] = config;
+    this.saveDynamicConfig(servers);
+    await this.connectServer(name, config);
+  }
+
+  async removeServer(name: string): Promise<void> {
+    const proc = this.processes.get(name);
+    if (proc) {
+      try {
+        if (proc.stdin) {
+          proc.stdin.end();
+        }
+      } catch {
+        void 0;
+      }
+      proc.kill();
+      this.processes.delete(name);
+    }
+    this.servers.delete(name);
+
+    const dynamicPath = getDynamicConfigPath();
+    if (fs.existsSync(dynamicPath)) {
+      try {
+        const raw = fs.readFileSync(dynamicPath, 'utf-8');
+        const config = JSON.parse(raw) as McpConfig;
+        delete config.mcpServers[name];
+        this.saveDynamicConfig(config.mcpServers);
+        console.log(`[mcp] Removed server "${name}" from dynamic config`);
+      } catch (err) {
+        console.error('[mcp] Failed to update dynamic config on remove:', err);
+      }
+    }
+  }
+
   async callTool(
     serverName: string,
     toolName: string,
@@ -446,6 +522,18 @@ export class McpServerManager {
         isError: true,
       };
     }
+  }
+
+  private saveDynamicConfig(servers: Record<string, McpServerConfig>): void {
+    const dynamicPath = getDynamicConfigPath();
+    const dir = path.dirname(dynamicPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    // Write to temp file first, then rename atomically to prevent corruption
+    const tmpPath = dynamicPath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, dynamicPath);
   }
 
   async shutdown(): Promise<void> {
