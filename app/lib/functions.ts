@@ -38,6 +38,47 @@ export interface JarvisFunction {
   handler: (args: Record<string, unknown>) => unknown | Promise<unknown>;
 }
 
+// ── Calendar event fetching ───────────────────────────────────────────────────
+// Tries MCP (real event titles via OAuth) first, falls back to iCal feed.
+
+interface CalendarEventSummary {
+  title: string;
+  start: string;
+  allDay: boolean;
+}
+
+async function fetchUpcomingCalendarEvents(): Promise<CalendarEventSummary[]> {
+  // 1. Try MCP — check if it's connected, then fetch real events
+  try {
+    const statusRes = await fetch('/api/mcp/dynamic');
+    const status = await statusRes.json() as { connected?: boolean };
+    if (status.connected) {
+      const now     = new Date();
+      const timeMin = now.toISOString();
+      const timeMax = new Date(now.getFullYear(), now.getMonth() + 1, 31).toISOString();
+      const res  = await fetch(`/api/mcp/calendar-events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&maxResults=50`);
+      const data = await res.json() as { events?: CalendarEventSummary[] };
+      if (res.ok && Array.isArray(data.events)) {
+        return data.events;
+      }
+    }
+  } catch { /* fall through to iCal */ }
+
+  // 2. Fall back to iCal feed
+  try {
+    const icalUrl = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ical_url') : null;
+    if (icalUrl) {
+      const res  = await fetch(`/api/ical?url=${encodeURIComponent(icalUrl)}`);
+      const data = await res.json() as { events?: CalendarEventSummary[] };
+      return data.events ?? [];
+    }
+  } catch { /* ignore */ }
+
+  return [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'get_date',
@@ -978,9 +1019,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       }
 
       if (page === 'calendar') {
-        // Fetch upcoming events from the iCal feed so Jarvis can summarize
         try {
-          const icalUrl = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ical_url') : null;
           const localTasksRaw = typeof window !== 'undefined' ? localStorage.getItem('jarvis_calendar_tasks') : null;
           const localTasks = localTasksRaw ? JSON.parse(localTasksRaw) as Record<string, { text: string; time?: string; done: boolean }[]> : {};
 
@@ -996,23 +1035,21 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
             }
           }
 
-          // Also fetch Google Calendar events if URL is set
-          if (icalUrl) {
-            const res = await fetch(`/api/ical?url=${encodeURIComponent(icalUrl)}`);
-            const data = (await res.json()) as { events?: { title: string; start: string; allDay: boolean }[] };
-            const now = new Date();
-            const weekLater = new Date(); weekLater.setDate(weekLater.getDate() + 7);
-            const gcalUpcoming = (data.events ?? [])
-              .filter(ev => { const d = new Date(ev.start); return d >= now && d <= weekLater; })
-              .slice(0, 10)
-              .map(ev => {
-                const d = new Date(ev.start);
-                const label = ev.allDay ? d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
-                  : d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + ' at ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-                return `${label}: ${ev.title}`;
-              });
-            upcoming.push(...gcalUpcoming);
-          }
+          // Try MCP first for real Google Calendar events, fall back to iCal
+          const gcalEvents = await fetchUpcomingCalendarEvents();
+          const now = new Date();
+          const weekLater = new Date(); weekLater.setDate(weekLater.getDate() + 7);
+          const gcalUpcoming = gcalEvents
+            .filter(ev => { const d = new Date(ev.start); return d >= now && d <= weekLater; })
+            .slice(0, 10)
+            .map(ev => {
+              const d = new Date(ev.start);
+              const label = ev.allDay
+                ? d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+                : d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + ' at ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+              return `${label}: ${ev.title}`;
+            });
+          upcoming.push(...gcalUpcoming);
 
           if (upcoming.length > 0) {
             return {
@@ -1164,16 +1201,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           const tasks = (store[dateKey] ?? []);
           for (const t of tasks) lines.push(`${t.time ? t.time + ' — ' : ''}${t.text}${t.done ? ' (done)' : ''}`);
         } catch { /* ignore */ }
-        // iCal events
+        // Google Calendar events: try MCP first, fall back to iCal
         try {
-          const icalUrl = localStorage.getItem('jarvis_ical_url');
-          if (icalUrl) {
-            const res = await fetch(`/api/ical?url=${encodeURIComponent(icalUrl)}`);
-            const data = (await res.json()) as { events?: { title: string; start: string; allDay: boolean }[] };
-            for (const ev of (data.events ?? []).filter(e => e.start.slice(0,10) === dateKey)) {
-              const time = ev.allDay ? 'All day' : new Date(ev.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-              lines.push(`${time} — ${ev.title} (Google)`);
-            }
+          const allEvents = await fetchUpcomingCalendarEvents();
+          for (const ev of allEvents.filter(e => e.start.slice(0, 10) === dateKey)) {
+            const time = ev.allDay ? 'All day' : new Date(ev.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            lines.push(`${time} — ${ev.title} (Google)`);
           }
         } catch { /* ignore */ }
         return lines.join('\n');

@@ -96,7 +96,8 @@ export function CalendarPage({ onNavigateHome }: Props) {
       try {
         const res = await fetch('/api/mcp/dynamic');
         const data = await res.json();
-        setGcalConfigured(data.configured && data.connected);
+        const connected = data.configured && data.connected;
+        setGcalConfigured(connected);
         setGcalTools(data.tools ?? 0);
         // Auto-show wizard only if not configured AND user hasn't dismissed it
         if (!data.configured) {
@@ -105,6 +106,10 @@ export function CalendarPage({ onNavigateHome }: Props) {
             setShowWizard(true);
           }
         }
+        // If MCP is connected, fetch events from it right away
+        if (connected) {
+          fetchMcpEvents();
+        }
       } catch {
         // API not available, don't show wizard
       } finally {
@@ -112,11 +117,13 @@ export function CalendarPage({ onNavigateHome }: Props) {
       }
     };
     checkConfig();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleWizardComplete = () => {
     setShowWizard(false);
     setGcalConfigured(true);
+    fetchMcpEvents();
   };
 
   const handleWizardSkip = () => {
@@ -128,7 +135,32 @@ export function CalendarPage({ onNavigateHome }: Props) {
     setShowWizard(false);
   };
 
-  // ── Fetch iCal events ──────────────────────────────────────────────────────
+  // ── Fetch MCP events (Google Calendar via OAuth MCP server) ───────────────
+
+  const fetchMcpEvents = useCallback(async () => {
+    setIcalLoading(true);
+    setIcalError('');
+    try {
+      // Fetch a wide window: 1 month back through 4 months forward
+      const now     = new Date();
+      const timeMin = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+      const timeMax = new Date(now.getFullYear(), now.getMonth() + 4, 0, 23, 59, 59).toISOString();
+
+      const res  = await fetch(`/api/mcp/calendar-events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`);
+      const data = await res.json() as { events?: ICalEvent[]; error?: string };
+      if (!res.ok || data.error) {
+        setIcalError(data.error ?? 'Could not load Google Calendar events.');
+        return;
+      }
+      setIcalEvents(groupByDate(data.events ?? []));
+    } catch {
+      setIcalError('Could not load Google Calendar events.');
+    } finally {
+      setIcalLoading(false);
+    }
+  }, []);
+
+  // ── Fetch iCal events (fallback when MCP is not connected) ────────────────
 
   const fetchIcal = useCallback(async (url: string) => {
     if (!url) return;
@@ -139,15 +171,18 @@ export function CalendarPage({ onNavigateHome }: Props) {
       const data = await res.json() as { events?: ICalEvent[]; error?: string };
       if (data.error) { setIcalError(data.error); return; }
       setIcalEvents(groupByDate(data.events ?? []));
-    } catch (e) {
+    } catch {
       setIcalError('Could not load calendar feed.');
     } finally {
       setIcalLoading(false);
     }
   }, []);
 
-  // Fetch on mount and when URL changes
-  useEffect(() => { if (icalUrl) fetchIcal(icalUrl); }, [icalUrl, fetchIcal]);
+  // MCP takes priority; fall back to iCal only when MCP is not connected
+  useEffect(() => {
+    if (gcalConfigured) return; // MCP already fetched in the checkConfig effect
+    if (icalUrl) fetchIcal(icalUrl);
+  }, [icalUrl, gcalConfigured, fetchIcal]);
 
   // ── Jarvis event handler ───────────────────────────────────────────────────
 
@@ -183,12 +218,13 @@ export function CalendarPage({ onNavigateHome }: Props) {
         setViewYear(y); setViewMonth(m - 1); setSelectedKey(date);
       }
       if (type === 'refresh_ical') {
-        if (icalUrl) fetchIcal(icalUrl);
+        if (gcalConfigured) fetchMcpEvents();
+        else if (icalUrl) fetchIcal(icalUrl);
       }
     };
     window.addEventListener('jarvis:calendar', handler);
     return () => window.removeEventListener('jarvis:calendar', handler);
-  }, [selectedKey, icalUrl, fetchIcal]);
+  }, [selectedKey, icalUrl, gcalConfigured, fetchIcal, fetchMcpEvents]);
 
   // ── Local task helpers ─────────────────────────────────────────────────────
 
