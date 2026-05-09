@@ -54,9 +54,12 @@ async function fetchUpcomingCalendarEvents(): Promise<CalendarEventSummary[]> {
     const status = await statusRes.json() as { connected?: boolean };
     if (status.connected) {
       const now     = new Date();
-      const timeMin = now.toISOString();
-      const timeMax = new Date(now.getFullYear(), now.getMonth() + 1, 31).toISOString();
-      const res  = await fetch(`/api/mcp/calendar-events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&maxResults=50`);
+      // Start from midnight today so events earlier in the day are included
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const timeMin = startOfToday.toISOString();
+      // Fetch through end of next month (covers 'this week', 'this month', etc.)
+      const timeMax = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59).toISOString();
+      const res  = await fetch(`/api/mcp/calendar-events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&maxResults=100`);
       const data = await res.json() as { events?: CalendarEventSummary[] };
       if (res.ok && Array.isArray(data.events)) {
         return data.events;
@@ -1161,10 +1164,11 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         properties: {
           command: {
             type: 'string',
-            enum: ['add_task', 'complete_task', 'list_tasks', 'clear_tasks', 'go_to_date', 'get_upcoming'],
+            enum: ['add_task', 'complete_task', 'delete_event', 'list_tasks', 'clear_tasks', 'go_to_date', 'get_upcoming'],
             description:
-              'add_task: add a new task to a day. ' +
-              'complete_task: mark a task done by text match. ' +
+              'add_task: add a new task/event to a day. ' +
+              'complete_task: mark a LOCAL task done by text match. ' +
+              'delete_event: permanently delete a Google Calendar event by title — use this when the user says "remove", "delete", or "cancel" an event. ' +
               'list_tasks: get full schedule for a specific day (local tasks + Google events). ' +
               'get_upcoming: get all events for the next 7 days — use this to answer questions like "what do I have this week?" or "am I free on Thursday?". ' +
               'clear_tasks: remove all local tasks for a day. ' +
@@ -1237,7 +1241,91 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         return { success: true, upcoming: summary, instruction: `Answer the user's question using this schedule data:\n${summary}` };
       }
 
-      // For all other commands, dispatch to CalendarPage via jarvis:calendar event
+      // add_task: create in Google Calendar when MCP is connected, else local
+      if (command === 'add_task') {
+        try {
+          const mcpStatus = await fetch('/api/mcp/dynamic');
+          const mcpData = await mcpStatus.json() as { connected?: boolean };
+          if (mcpData.connected) {
+            const res = await fetch('/api/mcp/create-event', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                summary:     args.text  as string,
+                date:        args.date  as string | undefined,
+                time:        args.time  as string | undefined,
+                description: args.description as string | undefined,
+              }),
+            });
+            const data = await res.json() as { success?: boolean; error?: string; optimistic?: { id: string; title: string; start: string; end: string; allDay: boolean; location: string; description: string } };
+            if (res.ok && data.success) {
+              const targetDate = (data.optimistic?.start ?? (args.date as string | undefined) ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
+              // Navigate immediately
+              window.dispatchEvent(new CustomEvent('jarvis:calendar', { detail: { type: 'go_to_date', date: targetDate } }));
+              // Optimistic insert — appears in the UI right away, no waiting
+              if (data.optimistic) {
+                window.dispatchEvent(new CustomEvent('jarvis:calendar', { detail: { type: 'add_mcp_event', event: data.optimistic } }));
+              }
+              // Background refresh to replace the optimistic placeholder with real GCal data
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('jarvis:calendar', { detail: { type: 'refresh_ical' } }));
+              }, 4000);
+              const dateLabel = args.date ? ` on ${args.date}` : ' for today';
+              const timeLabel = args.time ? ` at ${args.time}` : '';
+              return { success: true, message: `Added "${args.text}"${dateLabel}${timeLabel} to Google Calendar.` };
+            }
+            // MCP failed — fall through to local
+          }
+        } catch { /* fall through to local */ }
+
+        // Fallback: add locally
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('jarvis:calendar', {
+            detail: { type: 'add_task', ...args },
+          }));
+        }, 400);
+        return { success: true, message: `Added "${args.text ?? ''}"${args.date ? ` on ${args.date}` : ' for today'} (saved locally).` };
+      }
+
+      // delete_event: remove a Google Calendar event by title match
+      if (command === 'delete_event') {
+        try {
+          const mcpStatus = await fetch('/api/mcp/dynamic');
+          const mcpData = await mcpStatus.json() as { connected?: boolean };
+          if (mcpData.connected) {
+            const res = await fetch('/api/mcp/delete-event', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                text:       args.text as string,
+                date:       args.date as string | undefined,
+                calendarId: 'primary',
+              }),
+            });
+            const data = await res.json() as { success?: boolean; deletedId?: string; deletedTitle?: string; error?: string };
+            if (res.ok && data.success) {
+              // Optimistic removal — remove matching events from UI immediately
+              window.dispatchEvent(new CustomEvent('jarvis:calendar', {
+                detail: { type: 'remove_mcp_event', text: args.text, eventId: data.deletedId },
+              }));
+              // Navigate to the relevant date so user sees the removal
+              if (args.date) {
+                window.dispatchEvent(new CustomEvent('jarvis:calendar', { detail: { type: 'go_to_date', date: args.date } }));
+              }
+              // Safety refresh — CalendarPage also re-fetches immediately on
+              // remove_mcp_event, but this catches any edge cases.
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('jarvis:calendar', { detail: { type: 'refresh_ical' } }));
+              }, 4000);
+              return { success: true, message: `Deleted "${data.deletedTitle ?? args.text}" from Google Calendar.` };
+            }
+            return { success: false, message: data.error ?? `Could not find an event matching "${args.text}".` };
+          }
+        } catch { /* fall through */ }
+        return { success: false, message: 'Google Calendar is not connected. Cannot delete event.' };
+      }
+
+      // For all other commands (complete, clear, go_to_date), dispatch to CalendarPage
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent('jarvis:calendar', {
           detail: { type: command, ...args },
@@ -1245,7 +1333,6 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       }, 400);
 
       const desc: Record<string, string> = {
-        add_task:      `Added "${args.text ?? ''}"${args.date ? ` on ${args.date}` : ' for today'}.`,
         complete_task: `Marked "${args.text ?? ''}" as done.`,
         clear_tasks:   `Cleared all tasks${args.date ? ` for ${args.date}` : ' for today'}.`,
         go_to_date:    `Navigated calendar to ${args.date ?? 'today'}.`,

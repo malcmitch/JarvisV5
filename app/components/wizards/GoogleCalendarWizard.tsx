@@ -352,6 +352,7 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
   const [authStatus, setAuthStatus] = useState<'idle' | 'starting' | 'connecting' | 'connected' | 'error'>('idle');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authPolling, setAuthPolling] = useState(false);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [serverTools, setServerTools] = useState<number>(0);
 
   // Step 4: Final info
@@ -388,11 +389,14 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
     if (currentStep === 3) {
       setAuthStatus('idle');
       setAuthError(null);
+      setAuthUrl(null);
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
       setAuthPolling(false);
+      // Clean up any running auth process
+      fetch('/api/mcp/trigger-auth', { method: 'DELETE' }).catch(() => { /* ignore */ });
     }
     setCurrentStep((s) => Math.max(s - 1, 0));
   }, [currentStep, onBack]);
@@ -445,116 +449,132 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
   const startAuth = useCallback(async () => {
     setAuthStatus('starting');
     setAuthError(null);
+    setAuthUrl(null);
 
     try {
-      // First, get the credentials path
+      // ── Phase 1: Register + start the MCP server ──────────────────────────
       const credRes = await fetch('/api/mcp/credentials');
       const credData = await credRes.json();
       const credentialsPath = credData.path || '';
 
-      // Register + start the MCP server (server-side injects XDG_CONFIG_HOME automatically)
-      const res = await fetch('/api/mcp/dynamic', {
+      const startRes = await fetch('/api/mcp/dynamic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'google-calendar',
           command: 'npx',
           args: ['-y', '@cocal/google-calendar-mcp'],
-          env: {
-            GOOGLE_OAUTH_CREDENTIALS: credentialsPath,
-          },
+          env: { GOOGLE_OAUTH_CREDENTIALS: credentialsPath },
         }),
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
+      const startData = await startRes.json();
+      if (!startRes.ok) {
         setAuthStatus('error');
-        setAuthError(data.error || 'Failed to start MCP server');
+        setAuthError(startData.error || 'Failed to start MCP server');
         return;
       }
 
       setAuthStatus('connecting');
 
-      // Phase 1: Poll until the MCP server is connected
-      let connected = false;
+      // Poll until MCP server is connected (up to 60 s)
       let connAttempts = 0;
       await new Promise<void>((resolve, reject) => {
         const poll = setInterval(async () => {
           connAttempts++;
           try {
-            const pollRes = await fetch('/api/mcp/dynamic');
-            const pollData: DynamicStatus = await pollRes.json();
-            if (pollData.connected) {
-              clearInterval(poll);
-              setServerTools(pollData.tools);
-              connected = true;
-              resolve();
-            } else if (connAttempts >= 30) {
-              clearInterval(poll);
-              reject(new Error('MCP server connection timed out.'));
-            }
+            const r = await fetch('/api/mcp/dynamic');
+            const d: DynamicStatus = await r.json();
+            if (d.connected) { clearInterval(poll); setServerTools(d.tools); resolve(); }
+            else if (connAttempts >= 30) { clearInterval(poll); reject(new Error('MCP server connection timed out.')); }
           } catch { /* keep trying */ }
         }, 2000);
         pollingRef.current = poll;
       });
-
-      if (!connected) return;
       pollingRef.current = null;
 
-      // Phase 2: Trigger OAuth via the manage-accounts tool
-      // This opens a browser window for the user to sign in to Google.
-      setAuthStatus('connecting');
-      try {
-        await fetch('/api/mcp', {
+      // ── Phase 2: Spawn the auth CLI to obtain the OAuth URL ───────────────
+      // The auth CLI starts a local callback server and generates a Google
+      // OAuth URL. We capture that URL from its stdout/stderr and open it
+      // server-side using macOS's `open` command.
+      const triggerRes = await fetch('/api/mcp/trigger-auth', { method: 'POST' });
+      const triggerData = await triggerRes.json() as { authUrl?: string; error?: string; output?: string };
+
+      if (triggerData.authUrl) {
+        setAuthUrl(triggerData.authUrl);
+        // Open the URL server-side via the macOS `open` command
+        fetch('/api/open-url', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            server: 'google-calendar',
-            tool: 'manage-accounts',
-            arguments: { action: 'add' },
-          }),
-        });
-        // The tool opens a browser; we don't wait for its response
-      } catch { /* ignore — browser already opened */ }
+          body: JSON.stringify({ url: triggerData.authUrl }),
+        }).catch(() => { /* best-effort */ });
+      } else {
+        // Auth CLI didn't print a URL — show a manual instruction
+        setAuthUrl('');
+      }
 
-      // Phase 3: Poll until list-events succeeds (proves authentication is complete)
+      // ── Phase 3: Poll until the token file appears on disk ────────────────
       setAuthPolling(true);
       let authAttempts = 0;
-      const maxAuthAttempts = 60; // 2 min max
+      const maxAuthAttempts = 90; // 3 min max
 
       const authPoll = setInterval(async () => {
         authAttempts++;
         try {
-          const now = new Date();
-          const timeMin = now.toISOString();
-          const timeMax = new Date(now.getFullYear(), now.getMonth() + 1, 30).toISOString();
-          const testRes = await fetch(
-            `/api/mcp/calendar-events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&maxResults=1`,
-          );
-          const testData = await testRes.json() as { events?: unknown[]; error?: string };
+          const statusRes = await fetch('/api/mcp/auth-status');
+          const statusData = await statusRes.json() as { authenticated: boolean };
 
-          if (testRes.ok && Array.isArray(testData.events)) {
-            // Authentication complete
+          if (statusData.authenticated) {
             clearInterval(authPoll);
             pollingRef.current = null;
             setAuthPolling(false);
+
+            // ── Phase 4: Restart MCP server so it picks up the new token ───
+            await fetch('/api/mcp/dynamic?name=google-calendar', { method: 'DELETE' });
+            const reStartRes = await fetch('/api/mcp/dynamic', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: 'google-calendar',
+                command: 'npx',
+                args: ['-y', '@cocal/google-calendar-mcp'],
+                env: { GOOGLE_OAUTH_CREDENTIALS: credentialsPath },
+              }),
+            });
+            if (!reStartRes.ok) {
+              // Even if restart fails, mark as connected — user can refresh
+            }
+
+            // Poll briefly until reconnected
+            let reconnAttempts = 0;
+            await new Promise<void>((resolve) => {
+              const reconnPoll = setInterval(async () => {
+                reconnAttempts++;
+                try {
+                  const r = await fetch('/api/mcp/dynamic');
+                  const d: DynamicStatus = await r.json();
+                  if (d.connected || reconnAttempts >= 15) {
+                    clearInterval(reconnPoll);
+                    setServerTools(d.tools);
+                    setFinalTools(d.tools);
+                    resolve();
+                  }
+                } catch { if (reconnAttempts >= 15) resolve(); }
+              }, 2000);
+            });
+
             setAuthStatus('connected');
-            const pollRes = await fetch('/api/mcp/dynamic');
-            const pollData: DynamicStatus = await pollRes.json();
-            setServerTools(pollData.tools);
-            setFinalTools(pollData.tools);
             setTimeout(() => nextStep(), 1200);
+
           } else if (authAttempts >= maxAuthAttempts) {
             clearInterval(authPoll);
             pollingRef.current = null;
             setAuthPolling(false);
             setAuthStatus('error');
-            setAuthError('Authentication timed out. Complete the Google sign-in in the browser window that opened, then try again.');
+            setAuthError(
+              'Authentication timed out. Make sure you completed the Google sign-in in the browser, then try again.',
+            );
           }
-        } catch {
-          // Continue polling
-        }
+        } catch { /* keep polling */ }
       }, 2000);
 
       pollingRef.current = authPoll;
@@ -1022,7 +1042,7 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
 
                 {/* Connecting state */}
                 {authStatus === 'connecting' && (
-                  <div className="flex flex-col items-center gap-5 py-8">
+                  <div className="flex flex-col items-center gap-5 py-6">
                     <div className="relative w-16 h-16">
                       <div className="absolute inset-0 rounded-full border-2 border-cyan-500/20 border-t-cyan-400 animate-spin" style={{ animationDuration: '1.5s' }} />
                       <div className="absolute inset-0 flex items-center justify-center">
@@ -1031,21 +1051,54 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
                         </svg>
                       </div>
                     </div>
-                    <div className="text-center space-y-2">
-                      <div className="flex items-center justify-center gap-2">
-                        <span className="text-[11px] font-mono text-cyan-400/80">
-                          {authPolling ? 'Waiting for Google sign-in…' : 'Starting MCP server…'}
-                        </span>
-                      </div>
+                    <div className="w-full text-center space-y-3">
+                      <span className="text-[11px] font-mono text-cyan-400/80 block">
+                        {authPolling ? 'Waiting for Google sign-in…' : 'Starting MCP server…'}
+                      </span>
+
+                      {authUrl && (
+                        <div className="w-full space-y-3">
+                          {/* Primary CTA button */}
+                          <a
+                            href={authUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[11px] font-mono font-semibold uppercase tracking-widest hover:bg-cyan-500/30 hover:border-cyan-400/60 transition-all"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                              <polyline points="15 3 21 3 21 9" />
+                              <line x1="10" y1="14" x2="21" y2="3" />
+                            </svg>
+                            Open Google Sign-in
+                          </a>
+
+                          {/* URL box with copy */}
+                          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.07]">
+                            <span className="flex-1 text-[8px] font-mono text-white/35 break-all leading-relaxed select-all">
+                              {authUrl}
+                            </span>
+                            <button
+                              onClick={() => navigator.clipboard?.writeText(authUrl)}
+                              className="shrink-0 px-2 py-1 rounded text-[8px] font-mono text-white/25 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all uppercase tracking-wider"
+                              title="Copy URL"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {authUrl === '' && (
+                        <p className="text-[9px] font-mono text-amber-400/60 max-w-sm mx-auto">
+                          ⏳ Could not extract auth URL automatically. Check the terminal — the URL will be printed there. Copy it into your browser to sign in.
+                        </p>
+                      )}
+
                       {authPolling && (
-                        <>
-                          <p className="text-[10px] font-mono text-white/35 max-w-md mx-auto leading-relaxed">
-                            A browser window should have opened for Google sign-in. Complete the sign-in process there — this screen will advance automatically once done.
-                          </p>
-                          <p className="text-[9px] font-mono text-amber-400/50 max-w-sm mx-auto">
-                            ⏳ If no browser window opened, check your default browser or look at the terminal for an auth URL.
-                          </p>
-                        </>
+                        <p className="text-[9px] font-mono text-white/25 max-w-sm mx-auto">
+                          This screen advances automatically once sign-in is complete.
+                        </p>
                       )}
                     </div>
                     {/* Scanning animation */}

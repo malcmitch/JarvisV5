@@ -217,6 +217,31 @@ export function CalendarPage({ onNavigateHome }: Props) {
         const [y, m] = date.split('-').map(Number);
         setViewYear(y); setViewMonth(m - 1); setSelectedKey(date);
       }
+      if (type === 'add_mcp_event' && detail.event) {
+        // Optimistic insert — show the new GCal event immediately
+        const ev = detail.event as ICalEvent;
+        const key = ev.start.slice(0, 10);
+        setIcalEvents((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), ev] }));
+      }
+      if (type === 'remove_mcp_event') {
+        // Optimistic filter — strip by ID or title immediately so the UI reacts at once
+        const removedId   = detail.eventId as string | undefined;
+        const removedText = ((detail.text as string | undefined) ?? '').toLowerCase();
+        setIcalEvents((prev) => {
+          const next = { ...prev };
+          for (const key of Object.keys(next)) {
+            next[key] = next[key].filter((ev) => {
+              if (removedId && ev.id === removedId) return false;
+              if (removedText && ev.title.toLowerCase().includes(removedText)) return false;
+              return true;
+            });
+          }
+          return next;
+        });
+        // Re-fetch immediately — Google's API propagates deletes instantly so the
+        // fresh list will not include the deleted event, making the removal permanent.
+        fetchMcpEvents();
+      }
       if (type === 'refresh_ical') {
         if (gcalConfigured) fetchMcpEvents();
         else if (icalUrl) fetchIcal(icalUrl);
@@ -228,12 +253,47 @@ export function CalendarPage({ onNavigateHome }: Props) {
 
   // ── Local task helpers ─────────────────────────────────────────────────────
 
-  const addTask = useCallback(() => {
+  const [addingToGcal, setAddingToGcal] = useState(false);
+
+  const addTask = useCallback(async () => {
     const text = newTask.trim(); if (!text) return;
+
+    if (gcalConfigured) {
+      // Add to Google Calendar via MCP
+      setAddingToGcal(true);
+      try {
+        const res = await fetch('/api/mcp/create-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            summary: text,
+            date:    selectedKey,
+            time:    newTime.trim() || undefined,
+          }),
+        });
+        const data = await res.json() as { success?: boolean; error?: string; optimistic?: ICalEvent };
+        if (res.ok && data.success) {
+          setNewTask(''); setNewTime('');
+          // Optimistic insert — show instantly
+          if (data.optimistic) {
+            const key = data.optimistic.start.slice(0, 10);
+            setIcalEvents((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), data.optimistic!] }));
+          }
+          // Background refresh to replace optimistic with real GCal data
+          setTimeout(() => fetchMcpEvents(), 4000);
+          return;
+        }
+        // If MCP create fails, fall through to local
+      } catch { /* fall through */ } finally {
+        setAddingToGcal(false);
+      }
+    }
+
+    // Local fallback
     const task: Task = { id: Date.now().toString(), text, done: false, time: newTime.trim() || undefined };
     setTasks((prev) => { const next = { ...prev, [selectedKey]: [...(prev[selectedKey] ?? []), task] }; saveTasks(next); return next; });
     setNewTask(''); setNewTime('');
-  }, [newTask, newTime, selectedKey]);
+  }, [newTask, newTime, selectedKey, gcalConfigured, fetchMcpEvents]);
 
   const toggleTask = useCallback((key: string, id: string) => {
     setTasks((prev) => {
@@ -372,10 +432,10 @@ export function CalendarPage({ onNavigateHome }: Props) {
                   {isToday && !isSel && <div className="w-4 h-[2px] rounded-full bg-cyan-500/60 mb-1" />}
                   <div className="flex gap-0.5 flex-wrap">
                     {Array.from({ length: Math.min(localCnt, 3) }).map((_, j) => (
-                      <div key={`l${j}`} className="w-1.5 h-1.5 rounded-full bg-cyan-400/50" />
+                      <div key={`l${j}`} className="w-1.5 h-1.5 rounded-full bg-purple-400/60" />
                     ))}
                     {Array.from({ length: Math.min(gcalCnt, 3) }).map((_, j) => (
-                      <div key={`g${j}`} className="w-1.5 h-1.5 rounded-full bg-violet-400/60" />
+                      <div key={`g${j}`} className="w-1.5 h-1.5 rounded-full bg-blue-400/70" />
                     ))}
                   </div>
                   {isSel && <div className="absolute inset-0 border-2 border-cyan-500/50 pointer-events-none" />}
@@ -390,12 +450,12 @@ export function CalendarPage({ onNavigateHome }: Props) {
               <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">Today</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400/50" />
+              <div className="w-1.5 h-1.5 rounded-full bg-purple-400/60" />
               <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">Local tasks</span>
             </div>
             {(isConnected || gcalConfigured) && (
               <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-violet-400/60" />
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400/70" />
                 <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">
                   {gcalConfigured ? `Google MCP (${gcalTools} tools)` : 'Google events'}
                 </span>
@@ -426,11 +486,11 @@ export function CalendarPage({ onNavigateHome }: Props) {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -16 }}
                   transition={{ duration: 0.18 }}
-                  className="flex items-start gap-3 p-3 rounded-lg border border-violet-500/20 bg-violet-500/[0.06]"
+                  className="flex items-start gap-3 p-3 rounded-lg border border-blue-500/20 bg-blue-500/[0.06]"
                 >
-                  <div className="mt-1.5 w-2 h-2 shrink-0 rounded-full bg-violet-400/70" />
+                  <div className="mt-1.5 w-2 h-2 shrink-0 rounded-full bg-blue-400/70" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[9px] font-mono text-violet-400/60 mb-0.5">
+                    <div className="text-[9px] font-mono text-blue-400/60 mb-0.5">
                       {formatEventTime(ev)}{ev.location ? ` · ${ev.location}` : ''} · Google
                     </div>
                     <div className="text-[12px] font-mono text-white/75 leading-snug">{ev.title}</div>
@@ -460,17 +520,17 @@ export function CalendarPage({ onNavigateHome }: Props) {
                     exit={{ opacity: 0, x: -16 }}
                     transition={{ duration: 0.18 }}
                     className={`flex items-start gap-3 p-3 rounded-lg border transition-all group
-                      ${task.done ? 'bg-white/[0.02] border-white/[0.04] opacity-50' : 'bg-white/[0.04] border-white/[0.07] hover:border-cyan-500/20'}`}
+                      ${task.done ? 'bg-white/[0.02] border-white/[0.04] opacity-50' : 'bg-purple-500/[0.05] border-purple-500/[0.15] hover:border-purple-500/30'}`}
                   >
                     <button
                       onClick={() => toggleTask(selectedKey, task.id)}
                       className={`mt-0.5 w-4 h-4 shrink-0 rounded border flex items-center justify-center transition-all
-                        ${task.done ? 'bg-cyan-500/30 border-cyan-500/50 text-cyan-400' : 'border-white/20 hover:border-cyan-500/50'}`}
+                        ${task.done ? 'bg-purple-500/30 border-purple-500/50 text-purple-400' : 'border-white/20 hover:border-purple-500/50'}`}
                     >
                       {task.done && <span className="text-[8px]">✓</span>}
                     </button>
                     <div className="flex-1 min-w-0">
-                      {task.time && <div className="text-[9px] font-mono text-cyan-400/50 mb-0.5">{task.time}</div>}
+                      {task.time && <div className="text-[9px] font-mono text-purple-400/60 mb-0.5">{task.time}</div>}
                       <div className={`text-[12px] font-mono leading-snug ${task.done ? 'line-through text-white/30' : 'text-white/70'}`}>
                         {task.text}
                       </div>
@@ -485,16 +545,26 @@ export function CalendarPage({ onNavigateHome }: Props) {
             </AnimatePresence>
           </div>
 
-          {/* Add task */}
+          {/* Add task / event */}
           <div className="mt-4 pt-4 border-t border-white/[0.06]">
+            {gcalConfigured && (
+              <div className="flex items-center gap-1.5 mb-2">
+                <div className="w-1 h-1 rounded-full bg-blue-400/60" />
+                <span className="text-[8px] font-mono text-blue-400/50 uppercase tracking-widest">
+                  Adding to Google Calendar
+                </span>
+              </div>
+            )}
             <div className="flex gap-2">
               <input type="text" value={newTime} onChange={(e) => setNewTime(e.target.value)} placeholder="Time"
                 className="w-20 h-9 px-2 bg-white/[0.04] border border-white/[0.08] rounded-lg text-[11px] text-white font-mono placeholder:text-white/15 focus:outline-none focus:border-cyan-500/40 transition-colors" />
               <input type="text" value={newTask} onChange={(e) => setNewTask(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addTask()} placeholder="Add a task…"
+                onKeyDown={(e) => e.key === 'Enter' && addTask()} placeholder={gcalConfigured ? 'Add to Google Calendar…' : 'Add a task…'}
                 className="flex-1 h-9 px-3 bg-white/[0.04] border border-white/[0.08] rounded-lg text-[12px] text-white font-mono placeholder:text-white/15 focus:outline-none focus:border-cyan-500/40 transition-colors" />
-              <button onClick={addTask} disabled={!newTask.trim()}
-                className="h-9 px-3 bg-cyan-500/15 border border-cyan-500/30 rounded-lg text-cyan-400 text-[11px] font-mono hover:bg-cyan-500/25 transition-colors disabled:opacity-30">+</button>
+              <button onClick={addTask} disabled={!newTask.trim() || addingToGcal}
+                className="h-9 px-3 bg-cyan-500/15 border border-cyan-500/30 rounded-lg text-cyan-400 text-[11px] font-mono hover:bg-cyan-500/25 transition-colors disabled:opacity-30">
+                {addingToGcal ? '…' : '+'}
+              </button>
             </div>
           </div>
         </div>

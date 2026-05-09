@@ -36,21 +36,24 @@ function normalizeEvent(ev: GCalEvent): ICalEvent {
   let endIso   = '';
   let allDay    = false;
 
+  // Preserve the original timezone-aware datetime string rather than converting
+  // to UTC — groupByDate slices the first 10 chars for the date key, so
+  // converting to UTC would shift overnight events to the wrong day.
   if (typeof rawStart === 'string') {
     startIso = rawStart;
   } else if (rawStart?.dateTime) {
-    startIso = new Date(rawStart.dateTime).toISOString();
+    startIso = rawStart.dateTime; // keep original offset, e.g. "2026-05-09T21:00:00-05:00"
   } else if (rawStart?.date) {
-    startIso = `${rawStart.date}T00:00:00.000Z`;
+    startIso = `${rawStart.date}T00:00:00`; // all-day: no Z so slice(0,10) is always correct
     allDay = true;
   }
 
   if (typeof rawEnd === 'string') {
     endIso = rawEnd;
   } else if (rawEnd?.dateTime) {
-    endIso = new Date(rawEnd.dateTime).toISOString();
+    endIso = rawEnd.dateTime;
   } else if (rawEnd?.date) {
-    endIso = `${rawEnd.date}T00:00:00.000Z`;
+    endIso = `${rawEnd.date}T00:00:00`;
   }
 
   return {
