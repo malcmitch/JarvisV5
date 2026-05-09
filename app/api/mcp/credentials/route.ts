@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GOOGLE_CALENDAR_CREDENTIALS_DIR } from '@/app/lib/mcp/dynamic-config';
-import path from 'path';
+import { GOOGLE_CALENDAR_CREDENTIALS_DIR, GOOGLE_CALENDAR_CREDENTIALS_PATH } from '@/app/lib/mcp/dynamic-config';
 import fs from 'fs';
 
-const CRED_PATH = path.join(GOOGLE_CALENDAR_CREDENTIALS_DIR, 'credentials.json');
+const CRED_PATH = GOOGLE_CALENDAR_CREDENTIALS_PATH;
 
 export async function GET() {
   try {
@@ -34,6 +33,7 @@ export async function GET() {
     return NextResponse.json({
       exists: true,
       isValid,
+      path: CRED_PATH,
       projectInfo: isValid ? projectInfo : null,
     });
   } catch (err) {
