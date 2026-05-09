@@ -450,10 +450,9 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
       // First, get the credentials path
       const credRes = await fetch('/api/mcp/credentials');
       const credData = await credRes.json();
-
       const credentialsPath = credData.path || '';
 
-      // Register + start the MCP server
+      // Register + start the MCP server (server-side injects XDG_CONFIG_HOME automatically)
       const res = await fetch('/api/mcp/dynamic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -477,42 +476,88 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
 
       setAuthStatus('connecting');
 
-      // Start polling for connection
+      // Phase 1: Poll until the MCP server is connected
+      let connected = false;
+      let connAttempts = 0;
+      await new Promise<void>((resolve, reject) => {
+        const poll = setInterval(async () => {
+          connAttempts++;
+          try {
+            const pollRes = await fetch('/api/mcp/dynamic');
+            const pollData: DynamicStatus = await pollRes.json();
+            if (pollData.connected) {
+              clearInterval(poll);
+              setServerTools(pollData.tools);
+              connected = true;
+              resolve();
+            } else if (connAttempts >= 30) {
+              clearInterval(poll);
+              reject(new Error('MCP server connection timed out.'));
+            }
+          } catch { /* keep trying */ }
+        }, 2000);
+        pollingRef.current = poll;
+      });
+
+      if (!connected) return;
+      pollingRef.current = null;
+
+      // Phase 2: Trigger OAuth via the manage-accounts tool
+      // This opens a browser window for the user to sign in to Google.
+      setAuthStatus('connecting');
+      try {
+        await fetch('/api/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            server: 'google-calendar',
+            tool: 'manage-accounts',
+            arguments: { action: 'add' },
+          }),
+        });
+        // The tool opens a browser; we don't wait for its response
+      } catch { /* ignore — browser already opened */ }
+
+      // Phase 3: Poll until list-events succeeds (proves authentication is complete)
       setAuthPolling(true);
-      let attempts = 0;
-      const maxAttempts = 60; // 2 minutes max
+      let authAttempts = 0;
+      const maxAuthAttempts = 60; // 2 min max
 
-      const poll = setInterval(async () => {
-        attempts++;
+      const authPoll = setInterval(async () => {
+        authAttempts++;
         try {
-          const pollRes = await fetch('/api/mcp/dynamic');
-          const pollData: DynamicStatus = await pollRes.json();
+          const now = new Date();
+          const timeMin = now.toISOString();
+          const timeMax = new Date(now.getFullYear(), now.getMonth() + 1, 30).toISOString();
+          const testRes = await fetch(
+            `/api/mcp/calendar-events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&maxResults=1`,
+          );
+          const testData = await testRes.json() as { events?: unknown[]; error?: string };
 
-          if (pollData.connected) {
-            clearInterval(poll);
+          if (testRes.ok && Array.isArray(testData.events)) {
+            // Authentication complete
+            clearInterval(authPoll);
             pollingRef.current = null;
             setAuthPolling(false);
             setAuthStatus('connected');
+            const pollRes = await fetch('/api/mcp/dynamic');
+            const pollData: DynamicStatus = await pollRes.json();
             setServerTools(pollData.tools);
             setFinalTools(pollData.tools);
-            // Auto-advance after short delay
             setTimeout(() => nextStep(), 1200);
-          } else if (attempts >= maxAttempts) {
-            clearInterval(poll);
+          } else if (authAttempts >= maxAuthAttempts) {
+            clearInterval(authPoll);
             pollingRef.current = null;
             setAuthPolling(false);
             setAuthStatus('error');
-            setAuthError('Connection timed out. Check your browser for the Google sign-in page.');
-          } else if (attempts === 3) {
-            // After a few attempts, show the user-action message
-            setAuthStatus('connecting');
+            setAuthError('Authentication timed out. Complete the Google sign-in in the browser window that opened, then try again.');
           }
         } catch {
           // Continue polling
         }
       }, 2000);
 
-      pollingRef.current = poll;
+      pollingRef.current = authPoll;
     } catch (err) {
       setAuthStatus('error');
       setAuthError(err instanceof Error ? err.message : 'An unexpected error occurred');
@@ -988,14 +1033,20 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
                     </div>
                     <div className="text-center space-y-2">
                       <div className="flex items-center justify-center gap-2">
-                        <span className="text-[11px] font-mono text-cyan-400/80">Server connected! Waiting for authentication...</span>
+                        <span className="text-[11px] font-mono text-cyan-400/80">
+                          {authPolling ? 'Waiting for Google sign-in…' : 'Starting MCP server…'}
+                        </span>
                       </div>
-                      <p className="text-[10px] font-mono text-white/35 max-w-md mx-auto leading-relaxed">
-                        A browser window should have opened for Google sign-in. Complete the sign-in process there, then wait for confirmation here.
-                      </p>
-                      <p className="text-[9px] font-mono text-amber-400/50 max-w-sm mx-auto">
-                        ⏳ If no browser opens, check that your default browser is configured or check console for the auth URL.
-                      </p>
+                      {authPolling && (
+                        <>
+                          <p className="text-[10px] font-mono text-white/35 max-w-md mx-auto leading-relaxed">
+                            A browser window should have opened for Google sign-in. Complete the sign-in process there — this screen will advance automatically once done.
+                          </p>
+                          <p className="text-[9px] font-mono text-amber-400/50 max-w-sm mx-auto">
+                            ⏳ If no browser window opened, check your default browser or look at the terminal for an auth URL.
+                          </p>
+                        </>
+                      )}
                     </div>
                     {/* Scanning animation */}
                     <div className="relative w-full max-w-xs h-[2px] bg-white/[0.06] rounded-full overflow-hidden mt-2">

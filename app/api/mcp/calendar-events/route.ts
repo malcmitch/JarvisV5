@@ -3,6 +3,12 @@ import { McpServerManager } from '@/app/lib/mcp/server-manager';
 import { GOOGLE_CALENDAR_SERVER_NAME } from '@/app/lib/mcp/dynamic-config';
 import type { ICalEvent } from '@/app/api/ical/route';
 
+// MCP tool expects ISO 8601 without milliseconds and without trailing Z
+// e.g. "2026-01-01T00:00:00" not "2026-01-01T00:00:00.000Z"
+function toMcpIso(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, '');
+}
+
 // Common tool names used by different Google Calendar MCP implementations
 const LIST_EVENT_TOOLS = [
   'list-events',
@@ -83,8 +89,12 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
 
   const now      = new Date();
-  const timeMin  = searchParams.get('timeMin')  ?? new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-  const timeMax  = searchParams.get('timeMax')  ?? new Date(now.getFullYear(), now.getMonth() + 4, 0).toISOString();
+  // Normalise whatever the client sends — strip ms+Z so it matches the MCP-required
+  // format "2026-01-01T00:00:00" (ISO 8601 without fractional seconds or timezone suffix)
+  const rawMin   = searchParams.get('timeMin')  ?? new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+  const rawMax   = searchParams.get('timeMax')  ?? new Date(now.getFullYear(), now.getMonth() + 4, 0).toISOString();
+  const timeMin  = toMcpIso(new Date(rawMin));
+  const timeMax  = toMcpIso(new Date(rawMax));
   const maxResults = parseInt(searchParams.get('maxResults') ?? '250', 10);
 
   try {

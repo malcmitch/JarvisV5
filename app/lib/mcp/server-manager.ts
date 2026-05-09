@@ -14,6 +14,29 @@ import {
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { GOOGLE_CALENDAR_SERVER_NAME, JARVIS_DATA_DIR } from './dynamic-config';
+
+// Ensure required env vars are set for specific servers regardless of how they
+// were originally registered (e.g. after an app restart with a saved config).
+function applyServerEnvDefaults(name: string, cfg: McpServerConfig): McpServerConfig {
+  if (name !== GOOGLE_CALENDAR_SERVER_NAME) return cfg;
+
+  const env = { ...(cfg.env ?? {}) };
+
+  // Redirect XDG_CONFIG_HOME to ~/.jarvis so token files are stored in a
+  // directory we control (macOS often lacks ~/.config by default).
+  if (!env['XDG_CONFIG_HOME']) {
+    if (!fs.existsSync(JARVIS_DATA_DIR)) {
+      fs.mkdirSync(JARVIS_DATA_DIR, { recursive: true });
+    }
+    env['XDG_CONFIG_HOME'] = JARVIS_DATA_DIR;
+  }
+  if (!env['HOME']) {
+    env['HOME'] = os.homedir();
+  }
+
+  return { ...cfg, env };
+}
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const MCP_PROTOCOL_VERSION = '2025-03-26';
@@ -98,7 +121,7 @@ export class McpServerManager {
     console.log(`[mcp] Initializing ${servers.length} MCP server(s)...`);
 
     const results = await Promise.allSettled(
-      servers.map(([name, cfg]) => this.connectServer(name, cfg)),
+      servers.map(([name, cfg]) => this.connectServer(name, applyServerEnvDefaults(name, cfg))),
     );
 
     let failures = 0;
