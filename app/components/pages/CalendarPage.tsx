@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ICalEvent } from '../../api/ical/route';
 import { GoogleCalendarWizard } from '../wizards/GoogleCalendarWizard';
+import type { GoogleServiceId } from '@/app/lib/google-services';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -15,7 +16,7 @@ interface Task {
 }
 
 type TaskStore    = Record<string, Task[]>;
-type ICalStore    = Record<string, ICalEvent[]>; // keyed by YYYY-MM-DD
+type GCalEvents   = Record<string, ICalEvent[]>; // keyed by YYYY-MM-DD
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -41,18 +42,13 @@ function loadTasks(): TaskStore {
 }
 function saveTasks(s: TaskStore) { localStorage.setItem('jarvis_calendar_tasks', JSON.stringify(s)); }
 
-function loadICalUrl(): string {
-  if (typeof window === 'undefined') return '';
-  return localStorage.getItem('jarvis_ical_url') ?? '';
-}
-
 function formatEventTime(ev: ICalEvent): string {
   if (ev.allDay) return 'All day';
   return new Date(ev.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-function groupByDate(events: ICalEvent[]): ICalStore {
-  const store: ICalStore = {};
+function groupByDate(events: ICalEvent[]): GCalEvents {
+  const store: GCalEvents = {};
   for (const ev of events) {
     const key = ev.start.slice(0, 10);
     if (!store[key]) store[key] = [];
@@ -74,21 +70,39 @@ export function CalendarPage({ onNavigateHome }: Props) {
   const [newTask, setNewTask] = useState('');
   const [newTime, setNewTime] = useState('');
 
-  // iCal state
-  const [icalUrl,     setIcalUrl]     = useState(loadICalUrl);
-  const [icalEvents,  setIcalEvents]  = useState<ICalStore>({});
-  const [icalLoading, setIcalLoading] = useState(false);
-  const [icalError,   setIcalError]   = useState('');
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [draftUrl, setDraftUrl] = useState('');
-
+  // Google Calendar events state
+  const [gcalEvents, setGcalEvents] = useState<GCalEvents>({});
+  const [gcalEventsLoading, setGcalEventsLoading] = useState(false);
+  const [gcalEventsError, setGcalEventsError] = useState('');
   // Google Calendar MCP wizard state
   const [showWizard, setShowWizard] = useState(false);
   const [gcalConfigured, setGcalConfigured] = useState(false);
-  const [checkingConfig, setCheckingConfig] = useState(true);
   const [gcalTools, setGcalTools] = useState(0);
 
-  const isConnected = !!icalUrl;
+  // ── Fetch MCP events (Google Calendar via OAuth MCP server) ───────────────
+
+  const fetchMcpEvents = useCallback(async () => {
+    setGcalEventsLoading(true);
+    setGcalEventsError('');
+    try {
+      // Fetch a wide window: 1 month back through 4 months forward
+      const now     = new Date();
+      const timeMin = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+      const timeMax = new Date(now.getFullYear(), now.getMonth() + 4, 0, 23, 59, 59).toISOString();
+
+      const res  = await fetch(`/api/mcp/calendar-events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`);
+      const data = await res.json() as { events?: ICalEvent[]; error?: string };
+      if (!res.ok || data.error) {
+        setGcalEventsError(data.error ?? 'Could not load Google Calendar events.');
+        return;
+      }
+      setGcalEvents(groupByDate(data.events ?? []));
+    } catch {
+      setGcalEventsError('Could not load Google Calendar events.');
+    } finally {
+      setGcalEventsLoading(false);
+    }
+  }, []);
 
   // Check if Google Calendar MCP is configured on mount
   useEffect(() => {
@@ -112,18 +126,18 @@ export function CalendarPage({ onNavigateHome }: Props) {
         }
       } catch {
         // API not available, don't show wizard
-      } finally {
-        setCheckingConfig(false);
       }
     };
     checkConfig();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleWizardComplete = () => {
+  const handleWizardComplete = (connectedServices?: GoogleServiceId[]) => {
     setShowWizard(false);
-    setGcalConfigured(true);
-    fetchMcpEvents();
+    if (!connectedServices || connectedServices.includes('calendar')) {
+      setGcalConfigured(true);
+      fetchMcpEvents();
+    }
   };
 
   const handleWizardSkip = () => {
@@ -134,55 +148,6 @@ export function CalendarPage({ onNavigateHome }: Props) {
   const handleWizardBack = () => {
     setShowWizard(false);
   };
-
-  // ── Fetch MCP events (Google Calendar via OAuth MCP server) ───────────────
-
-  const fetchMcpEvents = useCallback(async () => {
-    setIcalLoading(true);
-    setIcalError('');
-    try {
-      // Fetch a wide window: 1 month back through 4 months forward
-      const now     = new Date();
-      const timeMin = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-      const timeMax = new Date(now.getFullYear(), now.getMonth() + 4, 0, 23, 59, 59).toISOString();
-
-      const res  = await fetch(`/api/mcp/calendar-events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`);
-      const data = await res.json() as { events?: ICalEvent[]; error?: string };
-      if (!res.ok || data.error) {
-        setIcalError(data.error ?? 'Could not load Google Calendar events.');
-        return;
-      }
-      setIcalEvents(groupByDate(data.events ?? []));
-    } catch {
-      setIcalError('Could not load Google Calendar events.');
-    } finally {
-      setIcalLoading(false);
-    }
-  }, []);
-
-  // ── Fetch iCal events (fallback when MCP is not connected) ────────────────
-
-  const fetchIcal = useCallback(async (url: string) => {
-    if (!url) return;
-    setIcalLoading(true);
-    setIcalError('');
-    try {
-      const res  = await fetch(`/api/ical?url=${encodeURIComponent(url)}`);
-      const data = await res.json() as { events?: ICalEvent[]; error?: string };
-      if (data.error) { setIcalError(data.error); return; }
-      setIcalEvents(groupByDate(data.events ?? []));
-    } catch {
-      setIcalError('Could not load calendar feed.');
-    } finally {
-      setIcalLoading(false);
-    }
-  }, []);
-
-  // MCP takes priority; fall back to iCal only when MCP is not connected
-  useEffect(() => {
-    if (gcalConfigured) return; // MCP already fetched in the checkConfig effect
-    if (icalUrl) fetchIcal(icalUrl);
-  }, [icalUrl, gcalConfigured, fetchIcal]);
 
   // ── Jarvis event handler ───────────────────────────────────────────────────
 
@@ -221,13 +186,13 @@ export function CalendarPage({ onNavigateHome }: Props) {
         // Optimistic insert — show the new GCal event immediately
         const ev = detail.event as ICalEvent;
         const key = ev.start.slice(0, 10);
-        setIcalEvents((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), ev] }));
+        setGcalEvents((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), ev] }));
       }
       if (type === 'remove_mcp_event') {
         // Optimistic filter — strip by ID or title immediately so the UI reacts at once
         const removedId   = detail.eventId as string | undefined;
         const removedText = ((detail.text as string | undefined) ?? '').toLowerCase();
-        setIcalEvents((prev) => {
+        setGcalEvents((prev) => {
           const next = { ...prev };
           for (const key of Object.keys(next)) {
             next[key] = next[key].filter((ev) => {
@@ -243,13 +208,12 @@ export function CalendarPage({ onNavigateHome }: Props) {
         fetchMcpEvents();
       }
       if (type === 'refresh_ical') {
-        if (gcalConfigured) fetchMcpEvents();
-        else if (icalUrl) fetchIcal(icalUrl);
+        fetchMcpEvents();
       }
     };
     window.addEventListener('jarvis:calendar', handler);
     return () => window.removeEventListener('jarvis:calendar', handler);
-  }, [selectedKey, icalUrl, gcalConfigured, fetchIcal, fetchMcpEvents]);
+  }, [selectedKey, gcalConfigured, fetchMcpEvents]);
 
   // ── Local task helpers ─────────────────────────────────────────────────────
 
@@ -277,7 +241,7 @@ export function CalendarPage({ onNavigateHome }: Props) {
           // Optimistic insert — show instantly
           if (data.optimistic) {
             const key = data.optimistic.start.slice(0, 10);
-            setIcalEvents((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), data.optimistic!] }));
+            setGcalEvents((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), data.optimistic!] }));
           }
           // Background refresh to replace optimistic with real GCal data
           setTimeout(() => fetchMcpEvents(), 4000);
@@ -318,7 +282,7 @@ export function CalendarPage({ onNavigateHome }: Props) {
 
   const todayStr          = todayKey();
   const selectedDayTasks  = tasks[selectedKey] ?? [];
-  const selectedDayEvents = icalEvents[selectedKey] ?? [];
+  const selectedDayEvents = gcalEvents[selectedKey] ?? [];
 
   const selectedDate = new Date(
     parseInt(selectedKey.split('-')[0]),
@@ -362,24 +326,17 @@ export function CalendarPage({ onNavigateHome }: Props) {
             <span className="text-[10px] font-mono text-cyan-400/70 uppercase tracking-widest">Jarvis Calendar</span>
           </div>
           <button
-            onClick={() => { setDraftUrl(icalUrl); setSettingsOpen(true); }}
+            onClick={() => setShowWizard(true)}
             className={`flex items-center gap-1.5 px-3 h-7 rounded-lg border text-[9px] font-mono uppercase tracking-wider transition-all
-              ${isConnected || gcalConfigured
+              ${gcalConfigured
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
                 : 'bg-white/[0.04] border-white/[0.08] text-white/30 hover:text-white/50 hover:border-white/15'}`}
           >
-            <div className={`w-1 h-1 rounded-full ${isConnected || gcalConfigured ? 'bg-emerald-400' : 'bg-white/20'}`} />
-            {isConnected || gcalConfigured ? 'Google Calendar Connected' : 'Connect Google Calendar'}
+            <div className={`w-1 h-1 rounded-full ${gcalConfigured ? 'bg-emerald-400' : 'bg-white/20'}`} />
+            {gcalConfigured ? 'Google Services' : 'Connect Google'}
           </button>
-          <button
-            onClick={() => setShowWizard(true)}
-            className="flex items-center gap-1.5 px-3 h-7 rounded-lg border border-cyan-500/25 bg-cyan-500/[0.06] text-cyan-400/80 hover:bg-cyan-500/[0.12] hover:border-cyan-500/40 transition-all text-[9px] font-mono uppercase tracking-wider"
-          >
-            <div className="w-1 h-1 rounded-full bg-cyan-400" />
-            MCP Setup
-          </button>
-          {icalLoading && <span className="text-[9px] font-mono text-white/20 animate-pulse">Syncing…</span>}
-          {icalError   && <span className="text-[9px] font-mono text-red-400/60">{icalError}</span>}
+          {gcalEventsLoading && <span className="text-[9px] font-mono text-white/20 animate-pulse">Syncing…</span>}
+          {gcalEventsError   && <span className="text-[9px] font-mono text-red-400/60">{gcalEventsError}</span>}
         </div>
         <button
           onClick={onNavigateHome}
@@ -417,7 +374,7 @@ export function CalendarPage({ onNavigateHome }: Props) {
               const isToday = key === todayStr;
               const isSel   = key === selectedKey;
               const localCnt = (tasks[key] ?? []).filter(t => !t.done).length;
-              const gcalCnt  = (icalEvents[key] ?? []).length;
+              const gcalCnt  = (gcalEvents[key] ?? []).length;
 
               return (
                 <button
@@ -453,11 +410,11 @@ export function CalendarPage({ onNavigateHome }: Props) {
               <div className="w-1.5 h-1.5 rounded-full bg-purple-400/60" />
               <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">Local tasks</span>
             </div>
-            {(isConnected || gcalConfigured) && (
+            {gcalConfigured && (
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-400/70" />
                 <span className="text-[9px] font-mono text-white/20 uppercase tracking-wider">
-                  {gcalConfigured ? `Google MCP (${gcalTools} tools)` : 'Google events'}
+                  {`Google MCP (${gcalTools} tools)`}
                 </span>
               </div>
             )}
@@ -570,96 +527,7 @@ export function CalendarPage({ onNavigateHome }: Props) {
         </div>
       </div>
 
-      {/* ── Settings modal ─────────────────────────────────────────────────── */}
-      <AnimatePresence>
-        {settingsOpen && (
-          <div
-            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-            onClick={(e) => { if (e.target === e.currentTarget) setSettingsOpen(false); }}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.92, y: 16 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.92, y: 16 }}
-              transition={{ duration: 0.2 }}
-              className="w-[540px] bg-[#0a0e1a] border border-white/10 rounded-xl p-7 shadow-2xl"
-            >
-              <div className="flex items-start justify-between mb-6">
-                <div>
-                  <h2 className="text-white font-mono text-sm font-semibold">Connect Google Calendar</h2>
-                  <p className="text-white/30 text-[10px] font-mono mt-1">Paste your iCal feed URL — no login required</p>
-                </div>
-                <button onClick={() => setSettingsOpen(false)} className="text-white/25 hover:text-white/60 transition-colors">✕</button>
-              </div>
 
-              {/* How to get the URL */}
-              <div className="mb-5 p-4 rounded-lg bg-white/[0.03] border border-white/[0.06] space-y-2">
-                <div className="text-[10px] font-mono text-white/50 font-semibold uppercase tracking-widest mb-3">How to get your iCal URL</div>
-                {[
-                  ['1', 'Open', 'calendar.google.com', 'in your browser'],
-                  ['2', 'Left sidebar → hover your calendar name → click', '⋮', '→ Settings and sharing'],
-                  ['3', 'Scroll down to', '"Integrate calendar"', 'section'],
-                  ['4', 'Copy', '"Public address in iCal format"', '(ends in .ics)'],
-                  ['5', 'Paste it below and click Save', '', ''],
-                ].map(([num, pre, highlight, post]) => (
-                  <div key={num} className="flex items-start gap-2 text-[10px] font-mono text-white/35">
-                    <span className="text-cyan-500/50 shrink-0 w-3">{num}.</span>
-                    <span>{pre} {highlight && <span className="text-white/55">{highlight}</span>} {post}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-3">
-                <label className="block text-[9px] font-mono text-white/40 uppercase tracking-widest">iCal Feed URL</label>
-                <input
-                  type="text"
-                  value={draftUrl}
-                  onChange={(e) => setDraftUrl(e.target.value)}
-                  placeholder="https://calendar.google.com/calendar/ical/you@gmail.com/public/basic.ics"
-                  className="w-full bg-white/[0.04] border border-white/10 rounded px-3 py-2.5 text-[11px] text-white font-mono focus:outline-none focus:border-cyan-500/50 transition-colors placeholder:text-white/15"
-                />
-                {icalError && <div className="text-[10px] font-mono text-red-400/70">{icalError}</div>}
-                {isConnected && (
-                  <div className="flex items-center gap-2 text-[10px] font-mono text-emerald-400/60">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    Calendar connected · {Object.values(icalEvents).flat().length} events loaded
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between mt-6 pt-5 border-t border-white/[0.05]">
-                {isConnected ? (
-                  <button
-                    onClick={() => {
-                      localStorage.removeItem('jarvis_ical_url');
-                      setIcalUrl(''); setIcalEvents({}); setDraftUrl(''); setSettingsOpen(false);
-                    }}
-                    className="px-4 py-2 text-[10px] font-mono text-red-400/60 hover:text-red-400 transition-colors uppercase tracking-wider"
-                  >
-                    Disconnect
-                  </button>
-                ) : <div />}
-                <div className="flex gap-3">
-                  <button onClick={() => setSettingsOpen(false)} className="px-4 py-2 text-[10px] font-mono text-white/30 hover:text-white/50 transition-colors">Cancel</button>
-                  <button
-                    onClick={() => {
-                      const url = draftUrl.trim();
-                      if (!url) return;
-                      localStorage.setItem('jarvis_ical_url', url);
-                      setIcalUrl(url);
-                      setSettingsOpen(false);
-                    }}
-                    disabled={!draftUrl.trim()}
-                    className="px-5 py-2 text-[10px] font-mono bg-cyan-500/15 text-cyan-400 border border-cyan-500/35 rounded hover:bg-cyan-500/25 transition-colors uppercase tracking-wider disabled:opacity-30"
-                  >
-                    Save & Sync
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </motion.div>
       )}
     </AnimatePresence>

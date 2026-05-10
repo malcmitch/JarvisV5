@@ -45,7 +45,7 @@ const FILE_MAP: Record<SFXName, string> = {
 
 const SLIDE_SFX: SFXName[] = ['slide1', 'slide2', 'slide3'];
 
-export function sfx(name: SFXName, volume = 1): void {
+export function sfx(name: SFXName, volume = 1, rate = 1): void {
   if (typeof window === 'undefined') return;
   try {
     let audio = cache[name];
@@ -54,6 +54,7 @@ export function sfx(name: SFXName, volume = 1): void {
       cache[name] = audio;
     }
     audio.volume = Math.max(0, Math.min(1, volume));
+    audio.playbackRate = rate;
     audio.currentTime = 0;
     audio.play().catch(() => { /* user hasn't interacted yet — silent fail */ });
   } catch {

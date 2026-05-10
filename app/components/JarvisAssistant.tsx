@@ -36,10 +36,13 @@ const DEFAULT_SETTINGS: JarvisSettings = {
 export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   const [status, setStatus] = useState<'idle' | 'listening' | 'active' | 'error'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
+  const [micMuted, setMicMuted] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [fftData, setFftData] = useState<number[]>(new Array(FFT_BARS).fill(0));
   const statusRef = useRef(status);
+  const micMutedRef = useRef(false);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const localAudioStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -82,6 +85,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
 
   // ElevenLabs Conversational AI hook
   const elConversation = useConversation({
+    micMuted,
     clientTools: elClientToolsRef.current,
     onConnect: () => {
       console.log('ElevenLabs connected');
@@ -117,6 +121,10 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    micMutedRef.current = micMuted;
+  }, [micMuted]);
 
   // Status-change sound effects
   const prevStatusRef = useRef(status);
@@ -531,6 +539,10 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
           autoGainControl: false 
         }
       });
+      localAudioStreamRef.current = stream;
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !micMutedRef.current;
+      });
 
       const pc = new RTCPeerConnection();
       peerConnectionRef.current = pc;
@@ -715,6 +727,10 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
         remoteStreamRef.current.getTracks().forEach(t => t.stop());
         remoteStreamRef.current = null;
       }
+      if (localAudioStreamRef.current) {
+        localAudioStreamRef.current.getTracks().forEach(t => t.stop());
+        localAudioStreamRef.current = null;
+      }
       setStatus('listening');
       setLastError(null);
 
@@ -766,9 +782,38 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       remoteStreamRef.current.getTracks().forEach(t => t.stop());
       remoteStreamRef.current = null;
     }
+    if (localAudioStreamRef.current) {
+      localAudioStreamRef.current.getTracks().forEach(t => t.stop());
+      localAudioStreamRef.current = null;
+    }
     // ElevenLabs cleanup (fire-and-forget; may return undefined if not connected)
     try { elConversation.endSession(); } catch { /* no active session */ }
     setStatus('idle');
+  }
+
+  function setMicrophoneMuted(muted: boolean) {
+    micMutedRef.current = muted;
+    setMicMuted(muted);
+
+    localAudioStreamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = !muted;
+    });
+    peerConnectionRef.current?.getSenders().forEach((sender) => {
+      if (sender.track?.kind === 'audio') sender.track.enabled = !muted;
+    });
+
+    try { elConversation.setMuted(muted); } catch { /* ElevenLabs session may be inactive */ }
+  }
+
+  function handleLogoClick() {
+    if (compact) {
+      sfx('click', 0.45);
+      setMicrophoneMuted(!micMutedRef.current);
+      return;
+    }
+
+    sfx('sfx_settings_open', 0.7);
+    setIsSettingsOpen(true);
   }
 
   // Auto-start on mount / mode change / explicit restart
@@ -795,8 +840,12 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     setRestartTrigger((t) => t + 1);
   };
 
-  const ring1Scale = 1 + audioLevel * 0.08;
-  const ring2Scale = 1 + audioLevel * 0.05;
+  const isCompactMuted = compact && micMuted;
+  const visualStatus = isCompactMuted ? 'idle' : status;
+  const visualAudioLevel = isCompactMuted ? 0 : audioLevel;
+  const visualFftData = isCompactMuted ? new Array(FFT_BARS).fill(0) : fftData;
+  const ring1Scale = 1 + visualAudioLevel * 0.08;
+  const ring2Scale = 1 + visualAudioLevel * 0.05;
   const logoScale = 1;
   const glowIntensity = 0;
 
@@ -884,7 +933,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
                 className="absolute inset-0 flex items-center justify-center pointer-events-none"
                 style={{
                   transform: `rotate(${ring2Rotation}deg) scale(${ring2Scale})`,
-                  opacity: status === 'active' ? 1 : 0.3,
+                  opacity: visualStatus === 'active' ? 1 : 0.3,
                   transition: 'opacity 300ms'
                 }}
               >
@@ -903,7 +952,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
               {/* FFT Bars */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <svg className="w-2/3 h-2/3" viewBox="0 0 400 400" style={{ overflow: 'visible' }}>
-                  {mounted && fftData.map((value, index) => {
+                  {mounted && visualFftData.map((value, index) => {
                     const angle = (index / FFT_BARS) * Math.PI * 2;
                     const radius = 180;
                     const centerX = 200;
@@ -913,7 +962,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
                     const barWidth = 5;
                     const baseHeight = 6;
                     const barHeight = baseHeight + value * 25;
-                    const opacity = status === 'active' ? 0.4 + value * 0.6 : 0.1;
+                    const opacity = visualStatus === 'active' ? 0.4 + value * 0.6 : 0.1;
                     const rotation = (angle * 180) / Math.PI + 90;
                     return (
                       <g key={index} transform={`translate(${x}, ${y}) rotate(${rotation})`}>
@@ -937,7 +986,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
                 className="absolute inset-0 flex items-center justify-center pointer-events-none"
                 style={{
                   transform: `rotate(${ring1Rotation}deg) scale(${ring1Scale})`,
-                  opacity: status === 'active' ? 1 : 0.5,
+                  opacity: visualStatus === 'active' ? 1 : 0.5,
                   transition: 'opacity 200ms'
                 }}
               >
@@ -959,8 +1008,8 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
           {settings.visualizer === 'arc-reactor' && (
             <div className="absolute inset-0 pointer-events-none">
               <ArcReactorVisualizer
-                fftData={fftData}
-                status={status}
+                fftData={visualFftData}
+                status={visualStatus}
               />
             </div>
           )}
@@ -969,8 +1018,8 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
           {settings.visualizer === 'sphere-nodes' && (
             <div className="absolute inset-0 z-[5] pointer-events-none">
               <SphereNodesVisualizer
-                fftData={fftData}
-                status={status}
+                fftData={visualFftData}
+                status={visualStatus}
                 logoUrl={`/assets/${settings.logo ?? 'logo'}.png`}
               />
             </div>
@@ -979,11 +1028,16 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
           {/* Logo - Center (Clickable for Settings); 3D mode uses particle logo instead */}
           {settings.visualizer !== 'sphere-nodes' && (
             <div
-              className="relative z-10 w-[55%] h-[55%] cursor-pointer group"
-              onClick={() => { sfx('sfx_settings_open', 0.7); setIsSettingsOpen(true); }}
+              className={`relative z-10 w-[55%] h-[55%] cursor-pointer group ${isCompactMuted ? 'opacity-35 grayscale' : ''}`}
+              role="button"
+              aria-label={compact ? (micMuted ? 'Unmute microphone' : 'Mute microphone') : 'Open settings'}
+              aria-pressed={compact ? micMuted : undefined}
+              onClick={handleLogoClick}
               style={{
                 transform: `scale(${logoScale})`,
-                filter: `drop-shadow(0 0 ${glowIntensity}px rgba(var(--accent-rgb), 0.9))`
+                filter: isCompactMuted
+                  ? 'drop-shadow(0 0 2px rgba(var(--accent-rgb), 0.25))'
+                  : `drop-shadow(0 0 ${glowIntensity}px rgba(var(--accent-rgb), 0.9))`
               }}
             >
               <Image
@@ -1000,9 +1054,12 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
           {settings.visualizer === 'sphere-nodes' && (
             <button
               type="button"
-              aria-label="Open settings"
-              className="absolute z-10 w-[55%] h-[55%] max-w-[280px] max-h-[280px] cursor-pointer rounded-full bg-transparent border-0 p-0 pointer-events-auto group"
-              onClick={() => { sfx('sfx_settings_open', 0.7); setIsSettingsOpen(true); }}
+              aria-label={compact ? (micMuted ? 'Unmute microphone' : 'Mute microphone') : 'Open settings'}
+              aria-pressed={compact ? micMuted : undefined}
+              className={`absolute z-10 w-[55%] h-[55%] max-w-[280px] max-h-[280px] cursor-pointer rounded-full bg-transparent border-0 p-0 pointer-events-auto group ${
+                isCompactMuted ? 'opacity-35' : ''
+              }`}
+              onClick={handleLogoClick}
             />
           )}
 

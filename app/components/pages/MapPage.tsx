@@ -110,20 +110,15 @@ export function MapPage({ onNavigateHome, pendingCommand, onPendingCommandConsum
     };
   }, []);
 
-  // ── Execute pending command once map is ready ─────────────────────────────
-
-  const pendingCommandRef = useRef(pendingCommand);
-  pendingCommandRef.current = pendingCommand;
+  // ── Execute pending command once map is ready, or when a new one arrives ──
 
   useEffect(() => {
     if (!ready) return;
-    const cmd = pendingCommandRef.current;
-    if (!cmd) return;
+    if (!pendingCommand) return;
     onPendingCommandConsumed?.();
     // Dispatch as a regular jarvis:map event so the existing handler runs it
-    window.dispatchEvent(new CustomEvent('jarvis:map', { detail: cmd }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+    window.dispatchEvent(new CustomEvent('jarvis:map', { detail: pendingCommand }));
+  }, [ready, pendingCommand]);
 
   // ── Geocode helper ─────────────────────────────────────────────────────────
 

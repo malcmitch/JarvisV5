@@ -1,12 +1,16 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  GOOGLE_SERVICES,
+  getGoogleServiceIds,
+  getScopeText,
+  type GoogleServiceId,
+} from '@/app/lib/google-services';
 
 interface GoogleCalendarWizardProps {
-  onComplete: () => void;
+  onComplete: (connectedServices?: GoogleServiceId[]) => void;
   onSkip: () => void;
   onBack: () => void;
 }
@@ -34,35 +38,52 @@ interface ValidationResult {
   data?: CredentialsJson;
 }
 
-interface DynamicStatus {
+interface GoogleServiceStatus {
+  id: GoogleServiceId;
+  label: string;
+  shortLabel: string;
+  serverName: string;
   configured: boolean;
   connected: boolean;
   tools: number;
-  serverInfo: { name?: string; version?: string } | null;
-  hasCredentials: boolean;
-  credentialsPath: string | null;
+  authenticated: boolean;
+  tokenPath: string | null;
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+interface GoogleServicesStatusResponse {
+  hasCredentials: boolean;
+  credentialsPath: string;
+  services: GoogleServiceStatus[];
+  error?: string;
+}
+
+type AuthState =
+  | 'queued'
+  | 'skipped'
+  | 'starting'
+  | 'authenticating'
+  | 'waiting'
+  | 'restarting'
+  | 'connected'
+  | 'error';
+
+interface AuthProgress {
+  status: AuthState;
+  message: string;
+  error?: string;
+  authUrl?: string;
+  tools?: number;
+}
 
 const TOTAL_STEPS = 5;
-
-const STEP_TITLES = [
-  'Welcome',
-  'Credentials',
-  'Upload',
-  'Authenticate',
-  'Complete',
-];
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
+const STEP_TITLES = ['Services', 'Cloud', 'Credentials', 'Auth', 'Done'];
 
 function validateCredentialsFile(content: string): ValidationResult {
   let parsed: CredentialsJson;
   try {
     parsed = JSON.parse(content);
   } catch {
-    return { valid: false, error: 'Invalid JSON file — please upload a valid credentials.json file.' };
+    return { valid: false, error: 'Invalid JSON file. Upload the OAuth credentials JSON from Google Cloud.' };
   }
 
   if (parsed.installed?.client_id && parsed.installed?.client_secret) {
@@ -72,22 +93,31 @@ function validateCredentialsFile(content: string): ValidationResult {
   if (parsed.web?.client_id && parsed.web?.client_secret) {
     return {
       valid: false,
-      error: 'This appears to be a Web application credentials file. Make sure to select "Desktop app" as the application type when creating your OAuth client ID. The file must contain an "installed" object.',
+      error: 'This is a Web application credentials file. Create a Desktop app OAuth client, or add the listed localhost callback URI before using Web credentials.',
     };
   }
 
   return {
     valid: false,
-    error: 'Invalid credentials format — missing "installed" object with client_id and client_secret. Make sure you downloaded the OAuth credentials for a Desktop app.',
+    error: 'Invalid credentials format. Expected a Desktop app OAuth JSON file with an "installed" object.',
   };
 }
 
 function truncateClientId(id: string): string {
-  if (id.length <= 24) return id;
-  return id.substring(0, 20) + '...' + id.slice(-4);
+  if (id.length <= 26) return id;
+  return `${id.substring(0, 20)}...${id.slice(-4)}`;
 }
 
-// ── Step Indicator ────────────────────────────────────────────────────────────
+function statusTone(status: AuthState) {
+  if (status === 'connected' || status === 'skipped') return 'text-emerald-400 border-emerald-500/25 bg-emerald-500/[0.06]';
+  if (status === 'error') return 'text-red-300 border-red-500/25 bg-red-500/[0.06]';
+  if (status === 'queued') return 'text-white/35 border-white/[0.08] bg-white/[0.02]';
+  return 'text-cyan-300 border-cyan-500/25 bg-cyan-500/[0.06]';
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function StepIndicator({ current }: { current: number }) {
   return (
@@ -115,166 +145,13 @@ function StepIndicator({ current }: { current: number }) {
             </span>
           </div>
           {i < TOTAL_STEPS - 1 && (
-            <div
-              className={`h-[1px] flex-1 transition-all duration-500 ${
-                i < current
-                  ? 'bg-cyan-500/40'
-                  : 'bg-white/[0.06]'
-              }`}
-            />
+            <div className={`h-[1px] flex-1 transition-all duration-500 ${i < current ? 'bg-cyan-500/40' : 'bg-white/[0.06]'}`} />
           )}
         </div>
       ))}
     </div>
   );
 }
-
-// ── Drag & Drop Upload Area ───────────────────────────────────────────────────
-
-function UploadArea({
-  onFile,
-  disabled,
-}: {
-  onFile: (file: File, content: string) => void;
-  disabled: boolean;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const [dropped, setDropped] = useState(false);
-
-  const handleDrag = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  }, []);
-
-  const handleDragIn = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
-      setDragging(true);
-    }
-  }, []);
-
-  const handleDragOut = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDragging(false);
-
-      if (disabled) return;
-
-      const file = e.dataTransfer.files?.[0];
-      if (!file) return;
-
-      if (!file.name.endsWith('.json')) {
-        return;
-      }
-
-      setDropped(true);
-      const reader = new FileReader();
-      reader.onload = () => {
-        const content = reader.result as string;
-        onFile(file, content);
-      };
-      reader.readAsText(file);
-    },
-    [onFile, disabled]
-  );
-
-  const handleClick = () => {
-    if (!disabled) inputRef.current?.click();
-  };
-
-  return (
-    <div
-      onDragEnter={handleDragIn}
-      onDragLeave={handleDragOut}
-      onDragOver={handleDrag}
-      onDrop={handleDrop}
-      onClick={handleClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') handleClick();
-      }}
-      aria-label="Upload credentials.json file"
-      className={`relative cursor-pointer rounded-xl border-2 border-dashed p-10 text-center transition-all duration-300 ${
-        dragging
-          ? 'border-cyan-400 bg-cyan-500/[0.08] shadow-[0_0_30px_rgba(34,211,238,0.1)]'
-          : dropped
-          ? 'border-emerald-500/50 bg-emerald-500/[0.04]'
-          : 'border-white/[0.12] bg-white/[0.02] hover:border-white/[0.25] hover:bg-white/[0.04]'
-      } ${disabled ? 'opacity-40 pointer-events-none' : ''}`}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".json"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          setDropped(true);
-          const reader = new FileReader();
-          reader.onload = () => {
-            const content = reader.result as string;
-            onFile(file, content);
-          };
-          reader.readAsText(file);
-        }}
-      />
-
-      {!dropped && (
-        <div className="flex flex-col items-center gap-4">
-          {/* File icon */}
-          <div className="relative w-14 h-14">
-            <div className="absolute inset-0 rounded-xl border-2 border-white/[0.15] flex items-center justify-center">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/30">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
-                <polyline points="10 9 9 9 8 9" />
-              </svg>
-            </div>
-            <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-cyan-500/30 border border-cyan-400/40 flex items-center justify-center">
-              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-cyan-400">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-[11px] font-mono text-white/60">
-              Drop your <span className="text-cyan-400/80">credentials.json</span> here
-            </div>
-            <div className="text-[9px] font-mono text-white/25 mt-1">or click to browse</div>
-          </div>
-        </div>
-      )}
-
-      {dropped && (
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </div>
-          <div className="text-[10px] font-mono text-emerald-400/70">File loaded — validating...</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Scan Lines Overlay ────────────────────────────────────────────────────────
 
 function ScanLines() {
   return (
@@ -289,16 +166,6 @@ function ScanLines() {
   );
 }
 
-// ── Pulsing Dot ───────────────────────────────────────────────────────────────
-
-function PulsingDot({ className = '' }: { className?: string }) {
-  return (
-    <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse ${className}`} />
-  );
-}
-
-// ── HUD Corner Brackets ───────────────────────────────────────────────────────
-
 function HUDCorners() {
   return (
     <>
@@ -310,7 +177,93 @@ function HUDCorners() {
   );
 }
 
-// ── Step Transitions ──────────────────────────────────────────────────────────
+function PulsingDot({ className = '' }: { className?: string }) {
+  return <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse ${className}`} />;
+}
+
+function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        await navigator.clipboard?.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1400);
+      }}
+      className="shrink-0 px-3 py-1.5 rounded-lg text-[8px] font-mono text-white/35 hover:text-cyan-300 hover:bg-cyan-500/10 border border-white/[0.07] hover:border-cyan-500/25 transition-all uppercase tracking-wider"
+    >
+      {copied ? 'Copied' : label}
+    </button>
+  );
+}
+
+function UploadArea({
+  onFile,
+  disabled,
+}: {
+  onFile: (file: File, content: string) => void;
+  disabled: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const loadFile = useCallback((file: File) => {
+    if (!file.name.endsWith('.json')) return;
+    const reader = new FileReader();
+    reader.onload = () => onFile(file, reader.result as string);
+    reader.readAsText(file);
+  }, [onFile]);
+
+  const handleDrop = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(false);
+    if (disabled) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) loadFile(file);
+  }, [disabled, loadFile]);
+
+  return (
+    <div
+      onDragEnter={(e) => { e.preventDefault(); setDragging(true); }}
+      onDragLeave={(e) => { e.preventDefault(); setDragging(false); }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDrop}
+      onClick={() => !disabled && inputRef.current?.click()}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !disabled) inputRef.current?.click();
+      }}
+      aria-label="Upload Google OAuth credentials JSON"
+      className={`relative cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-all duration-300 ${
+        dragging
+          ? 'border-cyan-400 bg-cyan-500/[0.08]'
+          : 'border-white/[0.12] bg-white/[0.02] hover:border-white/[0.25] hover:bg-white/[0.04]'
+      } ${disabled ? 'opacity-40 pointer-events-none' : ''}`}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".json"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) loadFile(file);
+        }}
+      />
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-12 h-12 rounded-xl border border-cyan-500/25 bg-cyan-500/[0.06] flex items-center justify-center text-[10px] font-mono text-cyan-300">
+          JSON
+        </div>
+        <div>
+          <div className="text-[11px] font-mono text-white/60">Drop credentials.json here</div>
+          <div className="text-[9px] font-mono text-white/25 mt-1">or click to browse</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const stepVariants = {
   initial: { opacity: 0, y: 20, filter: 'blur(4px)' },
@@ -318,28 +271,19 @@ const stepVariants = {
   exit: { opacity: 0, y: -20, filter: 'blur(4px)' },
 };
 
-// ── Feature Card ──────────────────────────────────────────────────────────────
-
-function FeatureCard({ icon, title, desc }: { icon: string; title: string; desc: string }) {
-  return (
-    <div className="group flex items-start gap-4 p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:border-cyan-500/25 hover:bg-cyan-500/[0.04] transition-all duration-300">
-      <div className="w-10 h-10 shrink-0 rounded-lg bg-cyan-500/[0.08] border border-cyan-500/20 flex items-center justify-center text-lg group-hover:bg-cyan-500/[0.12] group-hover:border-cyan-500/30 transition-all duration-300">
-        {icon}
-      </div>
-      <div>
-        <div className="text-[11px] font-mono text-white/80 font-semibold mb-0.5">{title}</div>
-        <div className="text-[10px] font-mono text-white/30 leading-relaxed">{desc}</div>
-      </div>
-    </div>
-  );
-}
-
-// ── Main Wizard Component ─────────────────────────────────────────────────────
-
 export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalendarWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<GoogleServiceId[]>(['calendar']);
+  const [selectionTouched, setSelectionTouched] = useState(false);
+  const [serviceStatuses, setServiceStatuses] = useState<Record<GoogleServiceId, GoogleServiceStatus | undefined>>({
+    calendar: undefined,
+    gmail: undefined,
+  });
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [hasCredentials, setHasCredentials] = useState(false);
+  const [credentialsPath, setCredentialsPath] = useState<string | null>(null);
 
-  // Step 2: File upload state
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [validatedData, setValidatedData] = useState<CredentialsJson | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -348,23 +292,65 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [savedProjectId, setSavedProjectId] = useState<string | null>(null);
 
-  // Step 3: Auth state
-  const [authStatus, setAuthStatus] = useState<'idle' | 'starting' | 'connecting' | 'connected' | 'error'>('idle');
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [authPolling, setAuthPolling] = useState(false);
-  const [authUrl, setAuthUrl] = useState<string | null>(null);
-  const [serverTools, setServerTools] = useState<number>(0);
+  const [authProgress, setAuthProgress] = useState<Record<GoogleServiceId, AuthProgress | undefined>>({
+    calendar: undefined,
+    gmail: undefined,
+  });
+  const [authRunning, setAuthRunning] = useState(false);
 
-  // Step 4: Final info
-  const [finalTools, setFinalTools] = useState(0);
+  const selectedServices = useMemo(
+    () => GOOGLE_SERVICES.filter((service) => selectedIds.includes(service.id)),
+    [selectedIds],
+  );
+  const selectedScopeText = useMemo(() => getScopeText(selectedIds), [selectedIds]);
+  const connectedServiceIds = useMemo(
+    () => GOOGLE_SERVICES
+      .filter((service) => serviceStatuses[service.id]?.connected || serviceStatuses[service.id]?.authenticated)
+      .map((service) => service.id),
+    [serviceStatuses],
+  );
 
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fetchGoogleStatus = useCallback(async (updateSelection = false): Promise<GoogleServicesStatusResponse> => {
+    const res = await fetch('/api/mcp/google-services');
+    const data = await res.json() as GoogleServicesStatusResponse;
+    if (!res.ok || data.error) {
+      throw new Error(data.error || 'Could not load Google service status.');
+    }
 
-  // Clean up polling on unmount
+    setHasCredentials(data.hasCredentials);
+    setCredentialsPath(data.credentialsPath);
+    setServiceStatuses(Object.fromEntries(data.services.map((service) => [service.id, service])) as Record<GoogleServiceId, GoogleServiceStatus>);
+
+    if (updateSelection && !selectionTouched) {
+      const pending = data.services
+        .filter((service) => !service.connected && !service.authenticated)
+        .map((service) => service.id);
+      setSelectedIds(getGoogleServiceIds(pending.length > 0 ? pending : ['calendar']));
+    }
+
+    return data;
+  }, [selectionTouched]);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      setStatusLoading(true);
+      setStatusError(null);
+      try {
+        await fetchGoogleStatus(true);
+      } catch (err) {
+        if (alive) setStatusError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (alive) setStatusLoading(false);
+      }
+    };
+    load();
+    return () => { alive = false; };
+  }, [fetchGoogleStatus]);
+
   useEffect(() => {
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+      fetch('/api/mcp/trigger-auth', { method: 'DELETE' }).catch(() => { /* ignore */ });
     };
   }, []);
 
@@ -377,31 +363,16 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
       onBack();
       return;
     }
-    // Reset step-specific state when going back
-    if (currentStep === 2) {
-      setUploadedFile(null);
-      setValidatedData(null);
-      setValidationError(null);
-      setUploadError(null);
-      setUploadSuccess(false);
-      setSavedProjectId(null);
-    }
-    if (currentStep === 3) {
-      setAuthStatus('idle');
-      setAuthError(null);
-      setAuthUrl(null);
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-      setAuthPolling(false);
-      // Clean up any running auth process
-      fetch('/api/mcp/trigger-auth', { method: 'DELETE' }).catch(() => { /* ignore */ });
-    }
     setCurrentStep((s) => Math.max(s - 1, 0));
   }, [currentStep, onBack]);
 
-  // ── Step 2: Handle file upload ──────────────────────────────────────────────
+  const toggleService = useCallback((id: GoogleServiceId) => {
+    setSelectionTouched(true);
+    setSelectedIds((current) => {
+      if (current.includes(id)) return current.filter((item) => item !== id);
+      return [...current, id];
+    });
+  }, []);
 
   const handleFileSelected = useCallback(async (file: File, content: string) => {
     setUploadedFile(file);
@@ -409,7 +380,6 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
     setUploadError(null);
     setUploadSuccess(false);
 
-    // Client-side validation
     const result = validateCredentialsFile(content);
     if (!result.valid) {
       setValidationError(result.error ?? 'Invalid file');
@@ -418,8 +388,6 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
     }
 
     setValidatedData(result.data!);
-
-    // Upload to server
     setIsUploading(true);
     try {
       const res = await fetch('/api/mcp/credentials', {
@@ -427,186 +395,219 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
       });
-      const data = await res.json();
+      const data = await res.json() as { error?: string; projectId?: string };
 
       if (!res.ok) {
-        setUploadError(data.error || 'Failed to save credentials');
-        setUploadSuccess(false);
-      } else {
-        setUploadSuccess(true);
-        setSavedProjectId(data.projectId || null);
-      }
-    } catch {
-      setUploadError('Network error — could not reach the server');
-      setUploadSuccess(false);
-    } finally {
-      setIsUploading(false);
-    }
-  }, []);
-
-  // ── Step 3: Start authentication ────────────────────────────────────────────
-
-  const startAuth = useCallback(async () => {
-    setAuthStatus('starting');
-    setAuthError(null);
-    setAuthUrl(null);
-
-    try {
-      // ── Phase 1: Register + start the MCP server ──────────────────────────
-      const credRes = await fetch('/api/mcp/credentials');
-      const credData = await credRes.json();
-      const credentialsPath = credData.path || '';
-
-      const startRes = await fetch('/api/mcp/dynamic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'google-calendar',
-          command: 'npx',
-          args: ['-y', '@cocal/google-calendar-mcp'],
-          env: { GOOGLE_OAUTH_CREDENTIALS: credentialsPath },
-        }),
-      });
-      const startData = await startRes.json();
-      if (!startRes.ok) {
-        setAuthStatus('error');
-        setAuthError(startData.error || 'Failed to start MCP server');
+        setUploadError(data.error || 'Failed to save credentials.');
         return;
       }
 
-      setAuthStatus('connecting');
+      setUploadSuccess(true);
+      setSavedProjectId(data.projectId || null);
+      await fetchGoogleStatus(false);
+    } catch {
+      setUploadError('Network error. Could not reach the local setup API.');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [fetchGoogleStatus]);
 
-      // Poll until MCP server is connected (up to 60 s)
-      let connAttempts = 0;
-      await new Promise<void>((resolve, reject) => {
-        const poll = setInterval(async () => {
-          connAttempts++;
-          try {
-            const r = await fetch('/api/mcp/dynamic');
-            const d: DynamicStatus = await r.json();
-            if (d.connected) { clearInterval(poll); setServerTools(d.tools); resolve(); }
-            else if (connAttempts >= 30) { clearInterval(poll); reject(new Error('MCP server connection timed out.')); }
-          } catch { /* keep trying */ }
-        }, 2000);
-        pollingRef.current = poll;
-      });
-      pollingRef.current = null;
+  const updateProgress = useCallback((id: GoogleServiceId, patch: Partial<AuthProgress>) => {
+    setAuthProgress((current) => ({
+      ...current,
+      [id]: {
+        status: 'queued',
+        message: 'Queued',
+        ...(current[id] ?? {}),
+        ...patch,
+      },
+    }));
+  }, []);
 
-      // ── Phase 2: Spawn the auth CLI to obtain the OAuth URL ───────────────
-      // The auth CLI starts a local callback server and generates a Google
-      // OAuth URL. We capture that URL from its stdout/stderr and open it
-      // server-side using macOS's `open` command.
-      const triggerRes = await fetch('/api/mcp/trigger-auth', { method: 'POST' });
-      const triggerData = await triggerRes.json() as { authUrl?: string; error?: string; output?: string };
+  const startService = useCallback(async (id: GoogleServiceId) => {
+    const res = await fetch('/api/mcp/google-services/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceId: id }),
+    });
+    const data = await res.json() as { error?: string; tools?: number };
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Could not start ${id} MCP server.`);
+    }
+    return data.tools ?? 0;
+  }, []);
 
-      if (triggerData.authUrl) {
-        setAuthUrl(triggerData.authUrl);
-        // Open the URL server-side via the macOS `open` command
-        fetch('/api/open-url', {
+  const restartService = useCallback(async (id: GoogleServiceId) => {
+    await fetch(`/api/mcp/google-services/start?serviceId=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => { /* ignore */ });
+    return startService(id);
+  }, [startService]);
+
+  const pollForAuth = useCallback(async (id: GoogleServiceId) => {
+    for (let attempt = 0; attempt < 90; attempt++) {
+      await delay(2000);
+      const res = await fetch(`/api/mcp/auth-status?service=${encodeURIComponent(id)}`);
+      const data = await res.json() as { authenticated?: boolean; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error || `Could not check ${id} auth status.`);
+      if (data.authenticated) return;
+    }
+    throw new Error('Authentication timed out. Complete Google sign-in in the browser, then retry this service.');
+  }, []);
+
+  const runAuthForServices = useCallback(async (idsToRun: GoogleServiceId[]) => {
+    if (idsToRun.length === 0) return;
+
+    setAuthRunning(true);
+    let hadError = false;
+
+    for (const id of idsToRun) {
+      const service = GOOGLE_SERVICES.find((item) => item.id === id);
+      if (!service) continue;
+
+      try {
+        const snapshot = await fetchGoogleStatus(false);
+        const latest = snapshot.services.find((item) => item.id === id);
+
+        if (latest?.connected) {
+          updateProgress(id, {
+            status: 'skipped',
+            message: `${service.shortLabel} already connected. Skipped.`,
+            tools: latest.tools,
+            error: undefined,
+            authUrl: undefined,
+          });
+          continue;
+        }
+
+        if (latest?.authenticated) {
+          updateProgress(id, {
+            status: 'starting',
+            message: `${service.shortLabel} token found. Starting MCP server.`,
+            error: undefined,
+            authUrl: undefined,
+          });
+          const tools = await startService(id);
+          updateProgress(id, {
+            status: 'connected',
+            message: `${service.shortLabel} connected with ${tools} tools.`,
+            tools,
+          });
+          continue;
+        }
+
+        if (service.startBeforeAuth) {
+          updateProgress(id, {
+            status: 'starting',
+            message: `Starting ${service.shortLabel} MCP server.`,
+            error: undefined,
+            authUrl: undefined,
+          });
+          await startService(id);
+        }
+
+        updateProgress(id, {
+          status: 'authenticating',
+          message: `Opening Google sign-in for ${service.shortLabel}.`,
+          error: undefined,
+          authUrl: undefined,
+        });
+
+        const triggerRes = await fetch('/api/mcp/trigger-auth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: triggerData.authUrl }),
-        }).catch(() => { /* best-effort */ });
-      } else {
-        // Auth CLI didn't print a URL — show a manual instruction
-        setAuthUrl('');
-      }
-
-      // ── Phase 3: Poll until the token file appears on disk ────────────────
-      setAuthPolling(true);
-      let authAttempts = 0;
-      const maxAuthAttempts = 90; // 3 min max
-
-      const authPoll = setInterval(async () => {
-        authAttempts++;
-        try {
-          const statusRes = await fetch('/api/mcp/auth-status');
-          const statusData = await statusRes.json() as { authenticated: boolean };
-
-          if (statusData.authenticated) {
-            clearInterval(authPoll);
-            pollingRef.current = null;
-            setAuthPolling(false);
-
-            // ── Phase 4: Restart MCP server so it picks up the new token ───
-            await fetch('/api/mcp/dynamic?name=google-calendar', { method: 'DELETE' });
-            const reStartRes = await fetch('/api/mcp/dynamic', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: 'google-calendar',
-                command: 'npx',
-                args: ['-y', '@cocal/google-calendar-mcp'],
-                env: { GOOGLE_OAUTH_CREDENTIALS: credentialsPath },
-              }),
-            });
-            if (!reStartRes.ok) {
-              // Even if restart fails, mark as connected — user can refresh
-            }
-
-            // Poll briefly until reconnected
-            let reconnAttempts = 0;
-            await new Promise<void>((resolve) => {
-              const reconnPoll = setInterval(async () => {
-                reconnAttempts++;
-                try {
-                  const r = await fetch('/api/mcp/dynamic');
-                  const d: DynamicStatus = await r.json();
-                  if (d.connected || reconnAttempts >= 15) {
-                    clearInterval(reconnPoll);
-                    setServerTools(d.tools);
-                    setFinalTools(d.tools);
-                    resolve();
-                  }
-                } catch { if (reconnAttempts >= 15) resolve(); }
-              }, 2000);
-            });
-
-            setAuthStatus('connected');
-            setTimeout(() => nextStep(), 1200);
-
-          } else if (authAttempts >= maxAuthAttempts) {
-            clearInterval(authPoll);
-            pollingRef.current = null;
-            setAuthPolling(false);
-            setAuthStatus('error');
-            setAuthError(
-              'Authentication timed out. Make sure you completed the Google sign-in in the browser, then try again.',
-            );
-          }
-        } catch { /* keep polling */ }
-      }, 2000);
-
-      pollingRef.current = authPoll;
-    } catch (err) {
-      setAuthStatus('error');
-      setAuthError(err instanceof Error ? err.message : 'An unexpected error occurred');
-    }
-  }, [nextStep]);
-
-  // ── Step 4: Setup final info on mount ───────────────────────────────────────
-
-  useEffect(() => {
-    if (currentStep === 4) {
-      // Fetch the latest status for the success screen
-      const getFinalStatus = async () => {
-        try {
-          const res = await fetch('/api/mcp/dynamic');
-          const data: DynamicStatus = await res.json();
-          setFinalTools(data.tools);
-        } catch {
-          // Use whatever we already have
+          body: JSON.stringify({ serviceId: id }),
+        });
+        const triggerData = await triggerRes.json() as { authUrl?: string; error?: string; output?: string };
+        if (!triggerRes.ok || triggerData.error) {
+          throw new Error(triggerData.error || `Could not start ${service.shortLabel} authentication.`);
         }
-      };
-      getFinalStatus();
-    }
-  }, [currentStep]);
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+        if (triggerData.authUrl) {
+          updateProgress(id, {
+            status: 'waiting',
+            message: `Waiting for ${service.shortLabel} Google consent.`,
+            authUrl: triggerData.authUrl,
+          });
+          fetch('/api/open-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: triggerData.authUrl }),
+          }).catch(() => { /* best effort */ });
+        } else {
+          updateProgress(id, {
+            status: 'waiting',
+            message: `Waiting for ${service.shortLabel} Google consent. Check terminal if browser did not open.`,
+            authUrl: '',
+          });
+        }
+
+        await pollForAuth(id);
+
+        updateProgress(id, {
+          status: 'restarting',
+          message: `Restarting ${service.shortLabel} MCP server with fresh token.`,
+          authUrl: undefined,
+        });
+        const tools = await restartService(id);
+
+        updateProgress(id, {
+          status: 'connected',
+          message: `${service.shortLabel} connected with ${tools} tools.`,
+          tools,
+        });
+      } catch (err) {
+        hadError = true;
+        await fetch('/api/mcp/trigger-auth', { method: 'DELETE' }).catch(() => { /* ignore */ });
+        updateProgress(id, {
+          status: 'error',
+          message: `${service?.shortLabel ?? id} failed.`,
+          error: err instanceof Error ? err.message : String(err),
+          authUrl: undefined,
+        });
+      }
+    }
+
+    setAuthRunning(false);
+    const latest = await fetchGoogleStatus(false).catch(() => null);
+    if (!hadError && latest) {
+      const done = selectedIds.every((id) => {
+        const status = latest.services.find((service) => service.id === id);
+        return status?.connected || status?.authenticated;
+      });
+      if (done) setCurrentStep(4);
+    }
+  }, [fetchGoogleStatus, pollForAuth, restartService, selectedIds, startService, updateProgress]);
+
+  const beginAuth = useCallback(() => {
+    const initial = Object.fromEntries(
+      selectedIds.map((id) => {
+        const service = GOOGLE_SERVICES.find((item) => item.id === id)!;
+        const status = serviceStatuses[id];
+        const alreadyDone = status?.connected || status?.authenticated;
+        return [
+          id,
+          {
+            status: alreadyDone ? 'skipped' : 'queued',
+            message: alreadyDone ? `${service.shortLabel} already set up. Skipped.` : `${service.shortLabel} queued.`,
+            tools: status?.tools ?? 0,
+          } satisfies AuthProgress,
+        ];
+      }),
+    ) as Record<GoogleServiceId, AuthProgress>;
+
+    setAuthProgress((current) => ({ ...current, ...initial }));
+    runAuthForServices(selectedIds);
+  }, [runAuthForServices, selectedIds, serviceStatuses]);
+
+  const canContinueFromCredentials = hasCredentials || uploadSuccess;
+  const hasAuthErrors = selectedIds.some((id) => authProgress[id]?.status === 'error');
+  const hasAuthSuccess = selectedIds.some((id) => {
+    const status = authProgress[id]?.status;
+    return status === 'connected' || status === 'skipped';
+  });
 
   return (
     <motion.div
-      key="gcal-wizard"
+      key="google-services-wizard"
       className="fixed inset-0 bg-[#050810] z-[50] overflow-hidden flex flex-col"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -616,12 +617,11 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
       <HUDCorners />
       <ScanLines />
 
-      {/* ── Header with Step Indicator ───────────────────────────────────── */}
       <div className="flex items-center justify-between px-8 py-4 border-b border-white/[0.06] shrink-0">
         <div className="flex items-center gap-3">
           <PulsingDot className="bg-cyan-400" />
           <span className="text-[10px] font-mono text-cyan-400/70 uppercase tracking-widest">
-            Google Calendar Setup
+            Google Services Setup
           </span>
         </div>
         <div className="flex-1 max-w-md mx-8 hidden md:block">
@@ -632,28 +632,20 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
         </div>
       </div>
 
-      {/* ── Mobile step indicator ────────────────────────────────────────── */}
       <div className="md:hidden px-8 py-3 border-b border-white/[0.04]">
         <div className="flex items-center gap-2">
           {Array.from({ length: TOTAL_STEPS }, (_, i) => (
-            <div
-              key={i}
-              className={`flex-1 h-1 rounded-full transition-all duration-500 ${
-                i <= currentStep ? 'bg-cyan-500/50' : 'bg-white/[0.06]'
-              }`}
-            />
+            <div key={i} className={`flex-1 h-1 rounded-full transition-all duration-500 ${i <= currentStep ? 'bg-cyan-500/50' : 'bg-white/[0.06]'}`} />
           ))}
         </div>
       </div>
 
-      {/* ── Step Content ─────────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-8 py-12 md:py-16">
+        <div className="max-w-4xl mx-auto px-8 py-10 md:py-14">
           <AnimatePresence mode="wait">
-            {/* ══════ STEP 0: Welcome ══════ */}
             {currentStep === 0 && (
               <motion.div
-                key="step-welcome"
+                key="step-services"
                 variants={stepVariants}
                 initial="initial"
                 animate="animate"
@@ -661,83 +653,185 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
                 transition={{ duration: 0.4 }}
                 className="space-y-8"
               >
-                {/* Glowing calendar icon */}
-                <div className="flex justify-center mb-2">
-                  <div className="relative">
-                    <div className="w-20 h-20 rounded-2xl bg-cyan-500/[0.06] border border-cyan-500/25 flex items-center justify-center shadow-[0_0_40px_rgba(34,211,238,0.08)]">
-                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-cyan-400">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                        <line x1="16" y1="2" x2="16" y2="6" />
-                        <line x1="8" y1="2" x2="8" y2="6" />
-                        <line x1="3" y1="10" x2="21" y2="10" />
-                        <line x1="12" y1="14" x2="12" y2="18" />
-                        <line x1="9" y1="14" x2="9" y2="18" />
-                        <line x1="15" y1="14" x2="15" y2="18" />
-                      </svg>
-                    </div>
-                    <div className="absolute -inset-4 rounded-3xl border border-cyan-500/10 animate-pulse pointer-events-none" style={{ animationDuration: '3s' }} />
-                  </div>
-                </div>
-
                 <div className="text-center space-y-2">
                   <h1 className="text-2xl md:text-3xl font-mono font-bold text-white tracking-tight">
-                    Supercharge Your{' '}
-                    <span className="text-cyan-400">Calendar</span>
+                    Choose Google <span className="text-cyan-400">Services</span>
                   </h1>
-                  <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-lg mx-auto">
-                    Connect Google Calendar to let Jarvis read, create, and manage your events by voice.
+                  <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-xl mx-auto">
+                    You must connect your Google account in order to use Google-based services. Pick what Jarvis should connect. Existing services are detected and skipped during auth.
                   </p>
                 </div>
 
-                {/* Feature cards */}
-                <div className="space-y-2.5">
-                  <FeatureCard
-                    icon="📅"
-                    title="Read Events"
-                    desc="View your schedule at a glance"
-                  />
-                  <FeatureCard
-                    icon="✍️"
-                    title="Write Events"
-                    desc="Create and update events by voice"
-                  />
-                  <FeatureCard
-                    icon="🔔"
-                    title="Smart Scheduling"
-                    desc="Check availability automatically"
-                  />
+                {statusError && (
+                  <div className="p-4 rounded-xl bg-red-500/[0.06] border border-red-500/20 text-[10px] font-mono text-red-300/70">
+                    {statusError}
+                  </div>
+                )}
+
+                <div className="grid md:grid-cols-2 gap-3">
+                  {GOOGLE_SERVICES.map((service) => {
+                    const selected = selectedIds.includes(service.id);
+                    const status = serviceStatuses[service.id];
+                    const done = status?.connected || status?.authenticated;
+
+                    return (
+                      <button
+                        key={service.id}
+                        onClick={() => toggleService(service.id)}
+                        className={`text-left p-5 rounded-xl border transition-all ${
+                          selected
+                            ? 'bg-cyan-500/[0.08] border-cyan-500/35 shadow-[0_0_24px_rgba(34,211,238,0.06)]'
+                            : 'bg-white/[0.025] border-white/[0.07] hover:bg-white/[0.04] hover:border-white/[0.14]'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-4">
+                            <div className={`w-11 h-11 rounded-xl border flex items-center justify-center text-[9px] font-mono ${
+                              selected ? 'border-cyan-500/35 bg-cyan-500/[0.1] text-cyan-300' : 'border-white/[0.08] bg-white/[0.03] text-white/30'
+                            }`}>
+                              {service.icon}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-[13px] font-mono text-white/80 font-semibold">{service.label}</div>
+                                {done && (
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/[0.08] border border-emerald-500/20 text-[8px] font-mono text-emerald-400 uppercase tracking-wider">
+                                    Ready
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] font-mono text-white/35 leading-relaxed mt-1">{service.description}</div>
+                              {status?.connected && (
+                                <div className="text-[9px] font-mono text-emerald-400/60 mt-2">{status.tools} MCP tools online</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className={`w-5 h-5 rounded-md border flex items-center justify-center ${
+                            selected ? 'border-cyan-400/60 bg-cyan-500/15 text-cyan-300' : 'border-white/10 text-transparent'
+                          }`}>
+                            <span className="text-[11px]">✓</span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                {/* Actions */}
-                <div className="flex flex-col items-center gap-3 pt-4">
-                  <button
-                    onClick={nextStep}
-                    className="group relative px-8 py-3 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 text-[11px] font-mono uppercase tracking-widest hover:bg-cyan-500/25 transition-all duration-300 overflow-hidden"
-                  >
-                    <span className="relative z-10">Get Started</span>
-                    <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-cyan-500/10 to-cyan-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 translate-x-[-100%] group-hover:translate-x-[100%]" />
-                  </button>
-                  <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <div className="flex gap-2">
                     <button
-                      onClick={onSkip}
-                      className="text-[9px] font-mono text-white/25 hover:text-white/50 transition-colors uppercase tracking-wider"
+                      onClick={() => { setSelectionTouched(true); setSelectedIds(GOOGLE_SERVICES.map((service) => service.id)); }}
+                      className="px-3 py-2 rounded-lg border border-white/[0.08] text-[9px] font-mono text-white/35 hover:text-cyan-300 hover:border-cyan-500/25 transition-all uppercase tracking-wider"
                     >
-                      Skip for now
+                      Select all
                     </button>
-                    <span className="text-white/10 text-[9px]">·</span>
                     <button
-                      onClick={onBack}
-                      className="text-[9px] font-mono text-white/25 hover:text-white/50 transition-colors uppercase tracking-wider"
+                      onClick={() => { setSelectionTouched(true); setSelectedIds([]); }}
+                      className="px-3 py-2 rounded-lg border border-white/[0.08] text-[9px] font-mono text-white/25 hover:text-white/50 transition-all uppercase tracking-wider"
                     >
-                      Back
+                      Clear
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button onClick={onSkip} className="px-4 py-2 text-[10px] font-mono text-white/25 hover:text-white/50 transition-colors uppercase tracking-wider">
+                      Skip
+                    </button>
+                    <button
+                      onClick={nextStep}
+                      disabled={selectedIds.length === 0 || statusLoading}
+                      className="px-8 py-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 text-[10px] font-mono uppercase tracking-widest hover:bg-cyan-500/25 transition-all disabled:opacity-25 disabled:cursor-not-allowed"
+                    >
+                      Continue
                     </button>
                   </div>
                 </div>
               </motion.div>
             )}
 
-            {/* ══════ STEP 1: Create Credentials ══════ */}
             {currentStep === 1 && (
+              <motion.div
+                key="step-cloud"
+                variants={stepVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={{ duration: 0.4 }}
+                className="space-y-8"
+              >
+                <div className="text-center space-y-2">
+                  <h1 className="text-2xl md:text-3xl font-mono font-bold text-white tracking-tight">
+                    Prepare Google <span className="text-cyan-400">Cloud</span>
+                  </h1>
+                  <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-xl mx-auto">
+                    Use one Google Cloud project and one Desktop OAuth client for all selected services.
+                  </p>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-3">
+                  {selectedServices.map((service) => (
+                    <div key={service.id} className="p-4 rounded-xl bg-white/[0.025] border border-white/[0.07] space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-mono text-white/75 font-semibold">{service.apiName}</div>
+                          <div className="text-[9px] font-mono text-white/25 mt-0.5">{service.packageName}</div>
+                        </div>
+                        <a
+                          href={service.apiUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-lg bg-cyan-500/[0.08] border border-cyan-500/25 text-[8px] font-mono text-cyan-300 hover:bg-cyan-500/[0.14] transition-all uppercase tracking-wider"
+                        >
+                          Enable
+                        </a>
+                      </div>
+                      <div className="space-y-1.5">
+                        {service.setupNotes.map((note) => (
+                          <div key={note} className="flex items-start gap-2 text-[10px] font-mono text-white/38 leading-relaxed">
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/35 mt-1.5 shrink-0" />
+                            <span>{note}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-5 rounded-xl bg-white/[0.03] border border-white/[0.07] space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-[10px] font-mono text-white/55 uppercase tracking-widest font-semibold">OAuth Scopes</div>
+                      <div className="text-[9px] font-mono text-white/25 mt-1">
+                        Add these to OAuth consent screen if Google asks for scopes.
+                      </div>
+                    </div>
+                    <CopyButton text={selectedScopeText} label="Copy scopes" />
+                  </div>
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/25 border border-white/[0.06] p-3 text-[9px] font-mono text-cyan-200/70 leading-relaxed">
+                    {selectedScopeText}
+                  </pre>
+                </div>
+
+                <div className="p-4 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
+                  <div className="text-[10px] font-mono text-amber-300/75 leading-relaxed">
+                    Create credentials at APIs & Services - Credentials - Create Credentials - OAuth client ID - Desktop app. Download the JSON file.
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button onClick={prevStep} className="px-6 py-2.5 text-[10px] font-mono text-white/30 hover:text-white/50 transition-colors uppercase tracking-wider">
+                    Back
+                  </button>
+                  <button
+                    onClick={nextStep}
+                    className="px-8 py-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 text-[10px] font-mono uppercase tracking-widest hover:bg-cyan-500/25 transition-all"
+                  >
+                    Credentials ready
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {currentStep === 2 && (
               <motion.div
                 key="step-credentials"
                 variants={stepVariants}
@@ -749,232 +843,81 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
               >
                 <div className="text-center space-y-2">
                   <h1 className="text-2xl md:text-3xl font-mono font-bold text-white tracking-tight">
-                    Create Your Google{' '}
-                    <span className="text-cyan-400">Credentials</span>
+                    Shared <span className="text-cyan-400">Credentials</span>
                   </h1>
-                  <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-lg mx-auto">
-                    You'll need to create a Google Cloud project and download your credentials file. It takes about 5 minutes.
+                  <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-xl mx-auto">
+                    Calendar, Gmail, and future Google services use the same OAuth client file.
                   </p>
                 </div>
 
-                {/* Step-by-step guide */}
-                <div className="space-y-1.5">
-                  {[
-                    {
-                      num: '01',
-                      text: 'Open the Google Cloud Console',
-                      link: 'https://console.cloud.google.com/',
-                    },
-                    {
-                      num: '02',
-                      text: 'Create a new project or select an existing one',
-                      link: null,
-                    },
-                    {
-                      num: '03',
-                      text: 'Enable the Google Calendar API',
-                      link: 'https://console.cloud.google.com/apis/library/calendar-json.googleapis.com',
-                    },
-                    {
-                      num: '04',
-                      text: 'Go to APIs & Services → Credentials → Create Credentials → OAuth client ID',
-                      link: null,
-                    },
-                    {
-                      num: '05',
-                      text: 'Choose "Desktop app" as the application type (important!)',
-                      link: null,
-                      highlight: true,
-                    },
-                    {
-                      num: '06',
-                      text: 'Download the credentials JSON file',
-                      link: null,
-                    },
-                  ].map((step) => (
-                    <div
-                      key={step.num}
-                      className={`flex items-start gap-4 p-3.5 rounded-xl transition-all duration-200 ${
-                        step.highlight
-                          ? 'bg-cyan-500/[0.06] border border-cyan-500/20'
-                          : 'bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.04]'
-                      }`}
-                    >
-                      <span
-                        className={`text-[10px] font-mono font-bold shrink-0 w-8 text-right ${
-                          step.highlight ? 'text-cyan-400/80' : 'text-white/20'
-                        }`}
-                      >
-                        {step.num}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        {step.link ? (
-                          <a
-                            href={step.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[11px] font-mono text-white/70 hover:text-cyan-400 transition-colors underline underline-offset-2 decoration-white/10 hover:decoration-cyan-500/40"
-                          >
-                            {step.text} ↗
-                          </a>
-                        ) : (
-                          <span className={`text-[11px] font-mono leading-snug ${
-                            step.highlight ? 'text-cyan-300/90 font-semibold' : 'text-white/60'
-                          }`}>
-                            {step.text}
-                          </span>
-                        )}
+                {hasCredentials && (
+                  <div className="p-4 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-[11px] font-mono text-emerald-400 font-semibold">Shared credentials found</div>
+                        <div className="text-[9px] font-mono text-emerald-300/45 break-all mt-1">{credentialsPath}</div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Tip box */}
-                <div className="p-4 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
-                  <div className="flex items-start gap-3">
-                    <span className="text-amber-400/70 text-sm shrink-0 mt-0.5">💡</span>
-                    <div className="text-[10px] font-mono text-amber-300/70 leading-relaxed">
-                      Make sure you select <strong className="text-amber-300">Desktop app</strong>, not Web application. The file should contain an <code className="text-amber-200 bg-amber-500/10 px-1 rounded">"installed"</code> object with your client_id and client_secret.
+                      <span className="text-[9px] font-mono text-emerald-400/70 uppercase tracking-wider">Ready</span>
                     </div>
                   </div>
-                </div>
+                )}
 
-                {/* Actions */}
-                <div className="flex items-center justify-between pt-2">
-                  <button
-                    onClick={prevStep}
-                    className="px-6 py-2.5 text-[10px] font-mono text-white/30 hover:text-white/50 transition-colors uppercase tracking-wider"
-                  >
-                    ← Back
-                  </button>
-                  <button
-                    onClick={nextStep}
-                    className="px-8 py-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 text-[10px] font-mono uppercase tracking-widest hover:bg-cyan-500/25 transition-all"
-                  >
-                    I've downloaded my credentials
-                  </button>
-                </div>
-              </motion.div>
-            )}
+                <UploadArea onFile={handleFileSelected} disabled={isUploading} />
 
-            {/* ══════ STEP 2: Upload File ══════ */}
-            {currentStep === 2 && (
-              <motion.div
-                key="step-upload"
-                variants={stepVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                transition={{ duration: 0.4 }}
-                className="space-y-8"
-              >
-                <div className="text-center space-y-2">
-                  <h1 className="text-2xl md:text-3xl font-mono font-bold text-white tracking-tight">
-                    Upload Your{' '}
-                    <span className="text-cyan-400">Credentials</span>
-                  </h1>
-                  <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-lg mx-auto">
-                    Drop your credentials.json file here or click to browse
-                  </p>
-                </div>
-
-                {/* Upload area */}
-                <UploadArea
-                  onFile={handleFileSelected}
-                  disabled={isUploading || uploadSuccess}
-                />
-
-                {/* Loading state */}
                 {isUploading && (
                   <div className="flex items-center justify-center gap-3">
                     <div className="w-4 h-4 border-2 border-cyan-500/30 border-t-cyan-400 rounded-full animate-spin" />
-                    <span className="text-[10px] font-mono text-cyan-400/70">Saving credentials...</span>
+                    <span className="text-[10px] font-mono text-cyan-400/70">Saving shared credentials...</span>
                   </div>
                 )}
 
-                {/* Validation error */}
                 {validationError && (
-                  <div className="p-4 rounded-xl bg-red-500/[0.06] border border-red-500/20">
-                    <div className="flex items-start gap-3">
-                      <span className="text-red-400/70 text-sm shrink-0 mt-0.5">✕</span>
-                      <div className="text-[10px] font-mono text-red-300/70 leading-relaxed">{validationError}</div>
-                    </div>
+                  <div className="p-4 rounded-xl bg-red-500/[0.06] border border-red-500/20 text-[10px] font-mono text-red-300/70 leading-relaxed">
+                    {validationError}
                   </div>
                 )}
 
-                {/* Upload error */}
                 {uploadError && (
                   <div className="p-4 rounded-xl bg-red-500/[0.06] border border-red-500/20">
-                    <div className="flex items-start gap-3">
-                      <span className="text-red-400/70 text-sm shrink-0 mt-0.5">✕</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-mono text-red-300/70 leading-relaxed">{uploadError}</div>
-                        <button
-                          onClick={() => {
-                            setUploadError(null);
-                            setUploadSuccess(false);
-                            setUploadedFile(null);
-                            setValidatedData(null);
-                            setValidationError(null);
-                          }}
-                          className="mt-2 text-[9px] font-mono text-red-400/50 hover:text-red-400 transition-colors uppercase tracking-wider"
-                        >
-                          Try again
-                        </button>
+                    <div className="text-[10px] font-mono text-red-300/70 leading-relaxed">{uploadError}</div>
+                    <button
+                      onClick={() => { setUploadError(null); setUploadedFile(null); setValidatedData(null); }}
+                      className="mt-3 text-[9px] font-mono text-red-400/60 hover:text-red-300 transition-colors uppercase tracking-wider"
+                    >
+                      Try another file
+                    </button>
+                  </div>
+                )}
+
+                {uploadSuccess && validatedData?.installed && (
+                  <div className="p-5 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20 space-y-3">
+                    <div className="text-[11px] font-mono text-emerald-400 font-semibold">Credentials saved</div>
+                    <div className="grid md:grid-cols-3 gap-3 pt-2 border-t border-emerald-500/10">
+                      <div>
+                        <div className="text-[8px] font-mono text-white/30 uppercase tracking-widest mb-1">File</div>
+                        <div className="text-[10px] font-mono text-white/60 truncate">{uploadedFile?.name}</div>
+                      </div>
+                      <div>
+                        <div className="text-[8px] font-mono text-white/30 uppercase tracking-widest mb-1">Client ID</div>
+                        <div className="text-[10px] font-mono text-white/60 truncate" title={validatedData.installed.client_id}>
+                          {truncateClientId(validatedData.installed.client_id || '-')}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[8px] font-mono text-white/30 uppercase tracking-widest mb-1">Project</div>
+                        <div className="text-[10px] font-mono text-white/60 truncate">{savedProjectId || validatedData.installed.project_id || '-'}</div>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* Success state */}
-                {uploadSuccess && validatedData && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-5 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20 space-y-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </div>
-                      <div>
-                        <div className="text-[11px] font-mono text-emerald-400 font-semibold">Credentials saved successfully</div>
-                        <div className="text-[9px] font-mono text-emerald-400/50">{uploadedFile?.name}</div>
-                      </div>
-                    </div>
-
-                    {validatedData.installed && (
-                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-emerald-500/10">
-                        <div>
-                          <div className="text-[8px] font-mono text-white/30 uppercase tracking-widest mb-1">Client ID</div>
-                          <div className="text-[10px] font-mono text-white/60 truncate" title={validatedData.installed.client_id}>
-                            {truncateClientId(validatedData.installed.client_id || '—')}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-[8px] font-mono text-white/30 uppercase tracking-widest mb-1">Project</div>
-                          <div className="text-[10px] font-mono text-white/60 truncate">
-                            {savedProjectId || validatedData.installed.project_id || '—'}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-
-                {/* Actions */}
                 <div className="flex items-center justify-between pt-2">
-                  <button
-                    onClick={prevStep}
-                    className="px-6 py-2.5 text-[10px] font-mono text-white/30 hover:text-white/50 transition-colors uppercase tracking-wider"
-                  >
-                    ← Back
+                  <button onClick={prevStep} className="px-6 py-2.5 text-[10px] font-mono text-white/30 hover:text-white/50 transition-colors uppercase tracking-wider">
+                    Back
                   </button>
                   <button
                     onClick={nextStep}
-                    disabled={!uploadSuccess}
+                    disabled={!canContinueFromCredentials}
                     className="px-8 py-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 text-[10px] font-mono uppercase tracking-widest hover:bg-cyan-500/25 transition-all disabled:opacity-25 disabled:cursor-not-allowed"
                   >
                     Continue
@@ -983,7 +926,6 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
               </motion.div>
             )}
 
-            {/* ══════ STEP 3: Authenticate ══════ */}
             {currentStep === 3 && (
               <motion.div
                 key="step-auth"
@@ -996,191 +938,94 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
               >
                 <div className="text-center space-y-2">
                   <h1 className="text-2xl md:text-3xl font-mono font-bold text-white tracking-tight">
-                    Connect Your Google{' '}
-                    <span className="text-cyan-400">Account</span>
+                    Authenticate <span className="text-cyan-400">One By One</span>
                   </h1>
-                  <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-lg mx-auto">
-                    Time to start the MCP server and authenticate with Google.
+                  <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-xl mx-auto">
+                    Jarvis runs each selected OAuth flow separately. Failed services can be retried alone.
                   </p>
                 </div>
 
-                {/* What's about to happen */}
-                {authStatus === 'idle' && (
-                  <div className="p-5 rounded-xl bg-white/[0.03] border border-white/[0.06] space-y-3">
-                    <div className="text-[10px] font-mono text-white/50 uppercase tracking-widest font-semibold mb-3">What will happen</div>
-                    {[
-                      'Jarvis will start the Google Calendar MCP server',
-                      'A browser window will open asking you to sign in to Google',
-                      'Grant permission to access your calendar',
-                      'Tokens will be saved securely — you won\'t need to do this again',
-                    ].map((item, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <div className="w-1.5 h-1.5 rounded-full bg-cyan-500/40 shrink-0" />
-                        <span className="text-[11px] font-mono text-white/60">{item}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="space-y-3">
+                  {selectedServices.map((service) => {
+                    const progress = authProgress[service.id] ?? {
+                      status: 'queued',
+                      message: `${service.shortLabel} queued.`,
+                    } satisfies AuthProgress;
 
-                {/* Starting state */}
-                {authStatus === 'starting' && (
-                  <div className="flex flex-col items-center gap-4 py-8">
-                    <div className="relative w-16 h-16">
-                      <div className="absolute inset-0 rounded-full border-2 border-cyan-500/20 border-t-cyan-400 animate-spin" />
-                      <div className="absolute inset-2 rounded-full border-2 border-cyan-500/10 border-b-cyan-400/60 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono text-cyan-400/80">Starting MCP server...</span>
-                      <span className="inline-flex gap-0.5">
-                        <span className="w-1 h-1 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <span className="w-1 h-1 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <span className="w-1 h-1 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Connecting state */}
-                {authStatus === 'connecting' && (
-                  <div className="flex flex-col items-center gap-5 py-6">
-                    <div className="relative w-16 h-16">
-                      <div className="absolute inset-0 rounded-full border-2 border-cyan-500/20 border-t-cyan-400 animate-spin" style={{ animationDuration: '1.5s' }} />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-cyan-400/60">
-                          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                        </svg>
-                      </div>
-                    </div>
-                    <div className="w-full text-center space-y-3">
-                      <span className="text-[11px] font-mono text-cyan-400/80 block">
-                        {authPolling ? 'Waiting for Google sign-in…' : 'Starting MCP server…'}
-                      </span>
-
-                      {authUrl && (
-                        <div className="w-full space-y-3">
-                          {/* Primary CTA button */}
-                          <a
-                            href={authUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[11px] font-mono font-semibold uppercase tracking-widest hover:bg-cyan-500/30 hover:border-cyan-400/60 transition-all"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                              <polyline points="15 3 21 3 21 9" />
-                              <line x1="10" y1="14" x2="21" y2="3" />
-                            </svg>
-                            Open Google Sign-in
-                          </a>
-
-                          {/* URL box with copy */}
-                          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.07]">
-                            <span className="flex-1 text-[8px] font-mono text-white/35 break-all leading-relaxed select-all">
-                              {authUrl}
-                            </span>
-                            <button
-                              onClick={() => navigator.clipboard?.writeText(authUrl)}
-                              className="shrink-0 px-2 py-1 rounded text-[8px] font-mono text-white/25 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all uppercase tracking-wider"
-                              title="Copy URL"
-                            >
-                              Copy
-                            </button>
+                    return (
+                      <div key={service.id} className={`rounded-xl border p-4 transition-all ${statusTone(progress.status)}`}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-mono font-semibold text-white/80">{service.label}</span>
+                              <span className="text-[8px] font-mono uppercase tracking-wider opacity-70">{progress.status}</span>
+                            </div>
+                            <div className="text-[10px] font-mono opacity-80 mt-1 leading-relaxed">{progress.message}</div>
+                            {progress.error && (
+                              <div className="mt-2 text-[10px] font-mono text-red-200/80 leading-relaxed">{progress.error}</div>
+                            )}
                           </div>
+                          {progress.status === 'error' && (
+                            <button
+                              onClick={() => runAuthForServices([service.id])}
+                              disabled={authRunning}
+                              className="shrink-0 px-3 py-1.5 rounded-lg bg-red-500/[0.08] border border-red-500/25 text-[8px] font-mono text-red-200 hover:bg-red-500/[0.14] disabled:opacity-30 transition-all uppercase tracking-wider"
+                            >
+                              Retry
+                            </button>
+                          )}
                         </div>
-                      )}
 
-                      {authUrl === '' && (
-                        <p className="text-[9px] font-mono text-amber-400/60 max-w-sm mx-auto">
-                          ⏳ Could not extract auth URL automatically. Check the terminal — the URL will be printed there. Copy it into your browser to sign in.
-                        </p>
-                      )}
-
-                      {authPolling && (
-                        <p className="text-[9px] font-mono text-white/25 max-w-sm mx-auto">
-                          This screen advances automatically once sign-in is complete.
-                        </p>
-                      )}
-                    </div>
-                    {/* Scanning animation */}
-                    <div className="relative w-full max-w-xs h-[2px] bg-white/[0.06] rounded-full overflow-hidden mt-2">
-                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent animate-pulse rounded-full" style={{ animationDuration: '2s' }} />
-                    </div>
-                  </div>
-                )}
-
-                {/* Connected state */}
-                {authStatus === 'connected' && (
-                  <motion.div
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-                    className="flex flex-col items-center gap-4 py-8"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-emerald-500/15 border-2 border-emerald-500/30 flex items-center justify-center shadow-[0_0_30px_rgba(34,197,94,0.1)]">
-                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-[13px] font-mono text-emerald-400 font-semibold">Authentication successful!</div>
-                      <div className="text-[10px] font-mono text-emerald-400/50 mt-1">
-                        {serverTools} tool{serverTools !== 1 ? 's' : ''} available
+                        {progress.authUrl && (
+                          <div className="mt-4 space-y-2">
+                            <a
+                              href={progress.authUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center w-full py-2.5 rounded-lg bg-cyan-500/15 border border-cyan-500/35 text-cyan-200 text-[10px] font-mono font-semibold uppercase tracking-widest hover:bg-cyan-500/25 transition-all"
+                            >
+                              Open Google sign-in
+                            </a>
+                            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-black/20 border border-white/[0.07]">
+                              <span className="flex-1 text-[8px] font-mono text-white/35 break-all leading-relaxed select-all">{progress.authUrl}</span>
+                              <CopyButton text={progress.authUrl} />
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    <div className="flex gap-1 mt-1">
-                      {[0, 1, 2].map((i) => (
-                        <div
-                          key={i}
-                          className="w-2 h-2 rounded-full bg-emerald-400/60"
-                          style={{ animation: `bounce 0.6s ${i * 0.15}s infinite alternate` }}
-                        />
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
+                    );
+                  })}
+                </div>
 
-                {/* Error state */}
-                {authStatus === 'error' && (
-                  <div className="p-5 rounded-xl bg-red-500/[0.06] border border-red-500/20">
-                    <div className="flex items-start gap-3">
-                      <span className="text-red-400/70 text-sm shrink-0 mt-0.5">✕</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[11px] font-mono text-red-300/80 font-semibold mb-1">Authentication Failed</div>
-                        <div className="text-[10px] font-mono text-red-300/60 leading-relaxed">{authError}</div>
-                        <button
-                          onClick={startAuth}
-                          className="mt-3 text-[9px] font-mono text-red-400/50 hover:text-red-400 transition-colors uppercase tracking-wider"
-                        >
-                          Retry
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Actions */}
                 <div className="flex items-center justify-between pt-2">
                   <button
                     onClick={prevStep}
-                    disabled={authStatus === 'starting' || authStatus === 'connecting'}
+                    disabled={authRunning}
                     className="px-6 py-2.5 text-[10px] font-mono text-white/30 hover:text-white/50 transition-colors uppercase tracking-wider disabled:opacity-20 disabled:cursor-not-allowed"
                   >
-                    ← Back
+                    Back
                   </button>
-                  {authStatus === 'idle' && (
+                  <div className="flex items-center gap-3">
+                    {hasAuthErrors && hasAuthSuccess && !authRunning && (
+                      <button
+                        onClick={() => setCurrentStep(4)}
+                        className="px-5 py-2.5 text-[10px] font-mono text-white/35 hover:text-white/60 transition-colors uppercase tracking-wider"
+                      >
+                        Finish partial setup
+                      </button>
+                    )}
                     <button
-                      onClick={startAuth}
-                      className="group relative px-8 py-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 text-[10px] font-mono uppercase tracking-widest hover:bg-cyan-500/25 transition-all overflow-hidden"
+                      onClick={beginAuth}
+                      disabled={authRunning}
+                      className="px-8 py-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 text-[10px] font-mono uppercase tracking-widest hover:bg-cyan-500/25 transition-all disabled:opacity-25 disabled:cursor-not-allowed"
                     >
-                      <span className="relative z-10">Start Authentication</span>
-                      <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-cyan-500/10 to-cyan-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 translate-x-[-100%] group-hover:translate-x-[100%]" />
+                      {authRunning ? 'Running...' : 'Start authentication'}
                     </button>
-                  )}
+                  </div>
                 </div>
               </motion.div>
             )}
 
-            {/* ══════ STEP 4: Done ══════ */}
             {currentStep === 4 && (
               <motion.div
                 key="step-done"
@@ -1191,72 +1036,57 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
                 transition={{ duration: 0.4 }}
                 className="space-y-8"
               >
-                {/* Success header */}
                 <div className="flex flex-col items-center gap-4">
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.15 }}
-                    className="w-20 h-20 rounded-full bg-emerald-500/[0.08] border-2 border-emerald-500/25 flex items-center justify-center shadow-[0_0_40px_rgba(34,197,94,0.08)]"
-                  >
-                    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </motion.div>
+                  <div className="w-20 h-20 rounded-full bg-emerald-500/[0.08] border-2 border-emerald-500/25 flex items-center justify-center shadow-[0_0_40px_rgba(34,197,94,0.08)]">
+                    <span className="text-3xl text-emerald-400">✓</span>
+                  </div>
                   <div className="text-center">
                     <h1 className="text-2xl md:text-3xl font-mono font-bold text-white tracking-tight">
-                      Calendar{' '}
-                      <span className="text-emerald-400">Connected!</span>
+                      Google <span className="text-emerald-400">Ready</span>
                     </h1>
                     <p className="text-[12px] font-mono text-white/40 leading-relaxed mt-2">
-                      Google Calendar is now connected to Jarvis.
+                      Connected services are ready for Jarvis MCP tools.
                     </p>
                   </div>
                 </div>
 
-                {/* Stats card */}
-                <div className="p-6 rounded-xl bg-white/[0.03] border border-white/[0.06] space-y-4">
-                  <div className="text-[9px] font-mono text-white/30 uppercase tracking-widest font-semibold">Connection Status</div>
-                  <div className="space-y-3">
-                    {[
-                      { label: 'MCP Server', status: 'Online', icon: '✅' },
-                      { label: 'Credentials', status: 'Configured', icon: '✅' },
-                      { label: 'Google Account', status: 'Connected', icon: '✅' },
-                      {
-                        label: 'Available Tools',
-                        status: `${finalTools} tool${finalTools !== 1 ? 's' : ''}`,
-                        icon: '🔧',
-                      },
-                    ].map((item) => (
-                      <div
-                        key={item.label}
-                        className="flex items-center justify-between py-2 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04]"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs">{item.icon}</span>
-                          <span className="text-[10px] font-mono text-white/50">{item.label}</span>
+                <div className="grid md:grid-cols-2 gap-3">
+                  {GOOGLE_SERVICES.map((service) => {
+                    const progress = authProgress[service.id];
+                    const status = serviceStatuses[service.id];
+                    const selected = selectedIds.includes(service.id);
+                    const done = progress?.status === 'connected' || progress?.status === 'skipped' || status?.connected || status?.authenticated;
+
+                    return (
+                      <div key={service.id} className={`p-4 rounded-xl border ${
+                        done
+                          ? 'bg-emerald-500/[0.06] border-emerald-500/20'
+                          : selected
+                          ? 'bg-red-500/[0.05] border-red-500/20'
+                          : 'bg-white/[0.02] border-white/[0.06]'
+                      }`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] font-mono text-white/70 font-semibold">{service.label}</div>
+                            <div className="text-[9px] font-mono text-white/30 mt-1">
+                              {done ? `${progress?.tools ?? status?.tools ?? 0} tools available` : selected ? 'Not connected' : 'Not selected'}
+                            </div>
+                          </div>
+                          <span className={`text-[9px] font-mono uppercase tracking-wider ${done ? 'text-emerald-400' : 'text-white/25'}`}>
+                            {done ? 'Ready' : 'Off'}
+                          </span>
                         </div>
-                        <span className="text-[10px] font-mono text-emerald-400/80 font-semibold">{item.status}</span>
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
 
-                {/* Description */}
-                <div className="text-center">
-                  <p className="text-[11px] font-mono text-white/40 leading-relaxed max-w-md mx-auto">
-                    Your calendar is ready. Jarvis can now read your schedule, create events, check availability, and manage your day — all by voice.
-                  </p>
-                </div>
-
-                {/* Actions */}
                 <div className="flex items-center justify-center pt-2">
                   <button
-                    onClick={onComplete}
-                    className="group relative px-10 py-3 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 text-[11px] font-mono uppercase tracking-widest hover:bg-cyan-500/25 transition-all duration-300 overflow-hidden"
+                    onClick={() => onComplete(connectedServiceIds)}
+                    className="px-10 py-3 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 text-[11px] font-mono uppercase tracking-widest hover:bg-cyan-500/25 transition-all duration-300"
                   >
-                    <span className="relative z-10">Open Calendar</span>
-                    <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-cyan-500/10 to-cyan-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 translate-x-[-100%] group-hover:translate-x-[100%]" />
+                    Done
                   </button>
                 </div>
               </motion.div>

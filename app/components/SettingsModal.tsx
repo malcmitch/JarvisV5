@@ -144,7 +144,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => { sfx('switch_interface', 0.5); setActiveTab(tab.id); }}
+              onClick={() => { sfx('switch_interface', 0.5, 2); setActiveTab(tab.id); }}
               className={`flex-1 px-4 py-3 text-xs font-bold uppercase tracking-widest transition-all ${
                 activeTab === tab.id
                   ? 'text-cyan-300 border-b-2 border-cyan-400 bg-cyan-950/30'

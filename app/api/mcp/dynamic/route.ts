@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { McpServerManager } from '@/app/lib/mcp/server-manager';
 import { GOOGLE_CALENDAR_SERVER_NAME, JARVIS_DATA_DIR } from '@/app/lib/mcp/dynamic-config';
+import { getGoogleServiceEnvForServerName } from '@/app/lib/mcp/google-service-runtime';
 import fs from 'fs';
 import os from 'os';
 
@@ -49,7 +50,8 @@ export async function POST(req: NextRequest) {
     await manager.initialize();
 
     // Merge caller-supplied env with server-specific defaults
-    const mergedEnv: Record<string, string> = { ...(env ?? {}) };
+    const googleServiceEnv = getGoogleServiceEnvForServerName(name);
+    const mergedEnv: Record<string, string> = { ...(googleServiceEnv ?? {}), ...(env ?? {}) };
 
     // For google-calendar: ensure token/config directories are writable.
     // macOS often lacks ~/.config so we redirect XDG_CONFIG_HOME to ~/.jarvis
