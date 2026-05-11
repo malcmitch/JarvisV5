@@ -8,6 +8,8 @@ import { HUDLayer } from "./components/HUD/HUDLayer";
 import { IntroAnimation } from "./components/IntroAnimation";
 import { NewsPage } from "./components/pages/NewsPage";
 import { CalendarPage } from "./components/pages/CalendarPage";
+import { HomeAssistantPage } from "./components/pages/HomeAssistantPage";
+import { PrinterPage } from "./components/pages/PrinterPage";
 import { AnimatePresence } from 'framer-motion';
 
 // MapLibre GL JS accesses browser APIs on import — must be client-only (no SSR)
@@ -16,7 +18,7 @@ const MapPage = dynamic(
   { ssr: false }
 );
 
-type JarvisPage = 'home' | 'news' | 'map' | 'calendar';
+type JarvisPage = 'home' | 'news' | 'map' | 'calendar' | 'home-assistant' | '3d-printers';
 
 export default function Home() {
   const [showIntro, setShowIntro]         = useState(false);
@@ -40,7 +42,7 @@ export default function Home() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const detail = (e as CustomEvent<any>).detail ?? {};
       const page: JarvisPage = detail.page;
-      if (page === 'home' || page === 'news' || page === 'map' || page === 'calendar') {
+      if (page === 'home' || page === 'news' || page === 'map' || page === 'calendar' || page === 'home-assistant' || page === '3d-printers') {
         setCurrentPage(page);
         if (page === 'map' && detail.mapCommand) {
           setPendingMapCmd(detail.mapCommand);
@@ -84,6 +86,12 @@ export default function Home() {
         )}
         {currentPage === 'calendar' && (
           <CalendarPage key="calendar" onNavigateHome={() => setCurrentPage('home')} />
+        )}
+        {currentPage === 'home-assistant' && (
+          <HomeAssistantPage key="home-assistant" onNavigateHome={() => setCurrentPage('home')} />
+        )}
+        {currentPage === '3d-printers' && (
+          <PrinterPage key="3d-printers" onNavigateHome={() => setCurrentPage('home')} />
         )}
       </AnimatePresence>
 

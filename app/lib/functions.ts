@@ -978,9 +978,11 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       type: 'function',
       name: 'navigate_to_page',
       description:
-        'Navigate Jarvis to a different page. Use for "home", "news", or "calendar" only. ' +
+        'Navigate Jarvis to a different page. Use for "home", "news", "calendar", "home-assistant", or "3d-printers". ' +
         '"news" opens the live news feed with streaming video and market data. ' +
         '"calendar" opens the calendar and task planner. ' +
+        '"home-assistant" opens the smart home control panel for lights, switches, climate, and more. ' +
+        '"3d-printers" opens the 3D printer dashboard to monitor and control Bambu Lab printers. ' +
         '"home" returns to the main Jarvis home screen. ' +
         'NEVER use this for map or location requests — use map_command instead.',
       parameters: {
@@ -988,8 +990,8 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         properties: {
           page: {
             type: 'string',
-            enum: ['home', 'news', 'calendar'],
-            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner.',
+            enum: ['home', 'news', 'calendar', 'home-assistant', '3d-printers'],
+            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner. "home-assistant" = smart home control panel. "3d-printers" = Bambu Lab 3D printer dashboard.',
           },
         },
         required: ['page'],
@@ -1067,6 +1069,66 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           success: true,
           navigated_to: page,
           instruction: 'The calendar page is open. Let the user know their calendar is ready and ask if they need to add anything.',
+        };
+      }
+
+      if (page === 'home-assistant') {
+        try {
+          const haUrl   = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ha_url')   ?? '' : '';
+          const haToken = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ha_token') ?? '' : '';
+          if (haUrl && haToken) {
+            const res = await fetch(`/api/home-assistant?url=${encodeURIComponent(haUrl)}&token=${encodeURIComponent(haToken)}&path=/api/states`);
+            if (res.ok) {
+              const states = await res.json() as Array<{ entity_id: string; state: string; attributes: { friendly_name?: string } }>;
+              const on  = states.filter((e) => e.state === 'on').length;
+              const all = states.length;
+              return {
+                success: true,
+                navigated_to: page,
+                devices_on: on,
+                devices_total: all,
+                instruction: `The Home Assistant page is open. ${on} of ${all} devices are currently on. Briefly let the user know their smart home is ready and mention a few key stats.`,
+              };
+            }
+          }
+        } catch { /* fall through */ }
+        return {
+          success: true,
+          navigated_to: page,
+          instruction: 'The Home Assistant page is open. Ask the user to connect their Home Assistant server if they haven\'t yet.',
+        };
+      }
+
+      if (page === '3d-printers') {
+        try {
+          const statusRes = await fetch('/api/bambu/status');
+          const status = await statusRes.json() as { authenticated?: boolean; mqttConnected?: boolean; printerCount?: number };
+          if (status.authenticated) {
+            const printRes = await fetch('/api/bambu/printers');
+            const printers = printRes.ok ? await printRes.json() as Array<{ name: string; deviceId: string }> : [];
+            const telRes = await fetch('/api/bambu/telemetry');
+            const telemetry = telRes.ok ? await telRes.json() as Record<string, { gcode_state?: string; mc_percent?: number; subtask_name?: string }> : {};
+            const active = printers.filter((p) => ['RUNNING','PAUSE'].includes((telemetry[p.deviceId]?.gcode_state ?? '').toUpperCase()));
+            const summary = printers.map((p) => {
+              const t = telemetry[p.deviceId] ?? {};
+              const state = t.gcode_state ?? 'unknown';
+              const pct = t.mc_percent != null ? ` — ${t.mc_percent}%` : '';
+              const job = t.subtask_name && t.subtask_name !== '-' ? ` printing "${t.subtask_name}"` : '';
+              return `${p.name}: ${state}${pct}${job}`;
+            }).join(', ');
+            return {
+              success: true,
+              navigated_to: page,
+              printers: summary,
+              active_count: active.length,
+              instruction: `The 3D Printer dashboard is now open. You have ${printers.length} printer${printers.length !== 1 ? 's' : ''}. ${active.length > 0 ? `${active.length} ${active.length === 1 ? 'is' : 'are'} currently printing. ` : 'None are currently printing. '}${summary ? 'Status: ' + summary + '.' : ''} Give the user a brief natural summary.`,
+            };
+          }
+        } catch { /* fall through */ }
+        return {
+          success: true,
+          navigated_to: page,
+          instruction: 'The 3D Printer dashboard is open. Ask the user to connect their Bambu Lab account if they haven\'t yet.',
         };
       }
 
@@ -1338,6 +1400,192 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         go_to_date:    `Navigated calendar to ${args.date ?? 'today'}.`,
       };
       return { success: true, message: desc[command] ?? 'Calendar updated.' };
+    },
+  },
+  {
+    name: 'home_assistant_command',
+    label: 'Smart Home',
+    description: 'Control Home Assistant smart home devices — lights, switches, climate, fans, locks, and more',
+    tool: {
+      type: 'function',
+      name: 'home_assistant_command',
+      description:
+        'Control smart home devices and read sensors via Home Assistant. ' +
+        'IMPORTANT TV/MEDIA RULES: When the user says "put on Netflix", "switch to HDMI 1", "play Hulu", "change the input", or anything about what is playing on the TV — ALWAYS use select_source with the source name. Do NOT ask for clarification about which TV if only one TV/media_player exists — just use it automatically. ' +
+        'For lights, switches, fans: use turn_on/turn_off/toggle. ' +
+        'For brightness: set_brightness. For temperature: set_temperature. ' +
+        'For listing devices or reading sensors: list_devices. ' +
+        'Examples: "put on Netflix" → select_source, source="Netflix" (no entity_id needed, auto-resolves to the TV). "switch to HDMI 1" → select_source, source="HDMI 1". "turn off the lights" → turn_off, domain=light.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+            enum: ['turn_on', 'turn_off', 'toggle', 'set_brightness', 'set_temperature', 'select_source', 'list_devices'],
+            description:
+              'turn_on / turn_off / toggle: control a device on/off. ' +
+              'set_brightness: set light brightness (0-100%). ' +
+              'set_temperature: set climate target temperature. ' +
+              'select_source: REQUIRED for any TV input/app change — "put on Netflix", "switch to HDMI 1", "change to Hulu" etc. Auto-finds the TV if no entity specified. ' +
+              'list_devices: get all available entities and their current states.',
+          },
+          entity_id: {
+            type: 'string',
+            description: 'The HA entity ID. OPTIONAL for select_source — if omitted, auto-resolves to the first/only TV. Required for other commands when you know the ID.',
+          },
+          friendly_name: {
+            type: 'string',
+            description: 'Human-readable device name. OPTIONAL for select_source (auto-finds TV). Use for other commands when you don\'t know the entity_id.',
+          },
+          brightness: {
+            type: 'number',
+            description: 'Brightness percentage 0-100 for set_brightness command.',
+          },
+          temperature: {
+            type: 'number',
+            description: 'Target temperature (in the unit configured in HA) for set_temperature.',
+          },
+          source: {
+            type: 'string',
+            description: 'REQUIRED for select_source. The exact input or app name: "Netflix", "Hulu", "Disney+", "HDMI 1", "HDMI 2", "YouTube", etc. Use the name as the user said it.',
+          },
+          domain: {
+            type: 'string',
+            description: 'HA domain to filter list_devices or scope a broad command: "light", "switch", "climate", "fan", "cover", "media_player", "lock", "sensor", "binary_sensor", "automation", "script".',
+          },
+        },
+        required: ['command'],
+      },
+    },
+    handler: async (args) => {
+      const command      = args.command      as string;
+      const entityId     = args.entity_id    as string | undefined;
+      const friendlyName = args.friendly_name as string | undefined;
+      const brightness   = args.brightness   as number | undefined;
+      const temperature  = args.temperature  as number | undefined;
+      const source       = args.source       as string | undefined;
+      const domain       = args.domain       as string | undefined;
+
+      const haUrl   = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ha_url')   ?? '' : '';
+      const haToken = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ha_token') ?? '' : '';
+
+      if (!haUrl || !haToken) {
+        return { success: false, message: 'Home Assistant is not configured. Navigate to the Home Assistant page and connect first.' };
+      }
+
+      // Navigate to the HA page so user can see changes
+      window.dispatchEvent(new CustomEvent('jarvis:navigate', { detail: { page: 'home-assistant' } }));
+
+      // list_devices: return all entity states
+      if (command === 'list_devices') {
+        try {
+          const res = await fetch(`/api/home-assistant?url=${encodeURIComponent(haUrl)}&token=${encodeURIComponent(haToken)}&path=/api/states`);
+          if (!res.ok) return { success: false, message: 'Could not fetch device list from Home Assistant.' };
+          const states = await res.json() as Array<{ entity_id: string; state: string; attributes: { friendly_name?: string; unit_of_measurement?: string } }>;
+          const filterDomain = domain?.toLowerCase();
+          const relevant = states.filter((e) => {
+            if (filterDomain) return e.entity_id.startsWith(filterDomain + '.');
+            return ['light','switch','climate','fan','cover','media_player','lock','automation','script','sensor','binary_sensor'].some((d) => e.entity_id.startsWith(d + '.'));
+          });
+          const summary = relevant.map((e) => {
+            const name = e.attributes.friendly_name ?? e.entity_id;
+            const unit = e.attributes.unit_of_measurement ? ` ${e.attributes.unit_of_measurement}` : '';
+            return `${name} (${e.entity_id}): ${e.state}${unit}`;
+          }).join('\n');
+          return {
+            success: true,
+            devices: summary,
+            instruction: `Here are the smart home devices and their states:\n${summary}\n\nRead a brief natural summary of the key devices and their current states.`,
+          };
+        } catch (e) {
+          return { success: false, message: `Failed to list devices: ${String(e)}` };
+        }
+      }
+
+      // For control commands, resolve entity_id
+      let resolvedEntityId = entityId;
+
+      // Auto-resolve TV for select_source when no entity specified
+      if (command === 'select_source' && !resolvedEntityId && !friendlyName) {
+        try {
+          const res = await fetch(`/api/home-assistant?url=${encodeURIComponent(haUrl)}&token=${encodeURIComponent(haToken)}&path=/api/states`);
+          if (res.ok) {
+            const states = await res.json() as Array<{ entity_id: string; state: string; attributes: { friendly_name?: string; source_list?: string[] } }>;
+            const tvs = states.filter((e) => e.entity_id.startsWith('media_player.'));
+            if (tvs.length === 1) {
+              resolvedEntityId = tvs[0].entity_id;
+            } else if (tvs.length > 1) {
+              const names = tvs.map((e) => e.attributes.friendly_name ?? e.entity_id).join(', ');
+              return { success: false, message: `Multiple TVs found: ${names}. Which one should I switch to ${source}?` };
+            } else {
+              return { success: false, message: 'No TV or media player found in Home Assistant.' };
+            }
+          }
+        } catch { /* fall through */ }
+      }
+
+      if (!resolvedEntityId && friendlyName) {
+        try {
+          const res = await fetch(`/api/home-assistant?url=${encodeURIComponent(haUrl)}&token=${encodeURIComponent(haToken)}&path=/api/states`);
+          if (res.ok) {
+            const states = await res.json() as Array<{ entity_id: string; state: string; attributes: { friendly_name?: string } }>;
+            const query = friendlyName.toLowerCase();
+            const match = states.find((e) =>
+              (e.attributes.friendly_name ?? '').toLowerCase().includes(query) ||
+              e.entity_id.toLowerCase().includes(query.replace(/ /g, '_'))
+            );
+            resolvedEntityId = match?.entity_id;
+          }
+        } catch { /* fall through */ }
+      }
+
+      if (!resolvedEntityId) {
+        return { success: false, message: `Could not find a device matching "${friendlyName ?? entityId}". Try list_devices to see available entities.` };
+      }
+
+      const entityDomain = resolvedEntityId.split('.')[0];
+      let service: string;
+      const serviceData: Record<string, unknown> = { entity_id: resolvedEntityId };
+
+      if (command === 'set_brightness') {
+        service = 'turn_on';
+        serviceData.brightness = Math.round(((brightness ?? 100) / 100) * 255);
+      } else if (command === 'set_temperature') {
+        service = 'set_temperature';
+        serviceData.temperature = temperature;
+      } else if (command === 'select_source') {
+        service = 'select_source';
+        serviceData.source = source;
+      } else {
+        service = command; // turn_on | turn_off | toggle
+      }
+
+      try {
+        const res = await fetch('/api/home-assistant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: haUrl, token: haToken, domain: entityDomain, service, serviceData }),
+        });
+        if (!res.ok) {
+          const err = await res.json() as { error?: string };
+          return { success: false, message: err.error ?? `HA returned ${res.status}` };
+        }
+        // Notify the page to refresh its state
+        window.dispatchEvent(new CustomEvent('jarvis:home-assistant', {
+          detail: { entityId: resolvedEntityId, domain: entityDomain, service, serviceData },
+        }));
+        const name = friendlyName ?? resolvedEntityId;
+        const resultMsg = command === 'set_brightness'
+          ? `Set ${name} brightness to ${brightness ?? 100}%.`
+          : command === 'set_temperature'
+          ? `Set ${name} temperature to ${temperature}°.`
+          : command === 'select_source'
+          ? `Switched ${name} input to ${source}.`
+          : `${command === 'turn_on' ? 'Turned on' : command === 'turn_off' ? 'Turned off' : 'Toggled'} ${name}.`;
+        return { success: true, message: resultMsg };
+      } catch (e) {
+        return { success: false, message: `Failed to control device: ${String(e)}` };
+      }
     },
   },
 ];
