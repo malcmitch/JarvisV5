@@ -19,6 +19,8 @@ export interface HAEntity {
     media_title?: string;
     media_artist?: string;
     volume_level?: number;
+    source?: string;
+    source_list?: string[];
     supported_features?: number;
     icon?: string;
   };
@@ -884,6 +886,45 @@ function SecurityPanel() {
   );
 }
 
+// ── Network Panel ───────────────────────────────────────────────────────────────
+
+function NetworkPanel({ entities }: { entities: HAEntity[] }) {
+  const dl  = entities.find((e) => e.entity_id.toLowerCase().includes('download_speed'));
+  const ul  = entities.find((e) => e.entity_id.toLowerCase().includes('upload_speed'));
+  const wan = entities.find((e) => e.entity_id.toLowerCase().includes('wan_status'));
+  const fmt = (e: HAEntity | undefined) => ({ val: e?.state ?? '—', unit: e?.attributes.unit_of_measurement ?? '' });
+  const { val: dlVal, unit: dlUnit } = fmt(dl);
+  const { val: ulVal, unit: ulUnit } = fmt(ul);
+  const connected = wan?.state === 'on';
+
+  return (
+    <Panel title="Network" accent="#22d3ee" accentRgb="34,211,238" className="h-full"
+      headerRight={
+        <div className="flex items-center gap-1.5">
+          <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-white/20'}`} />
+          <span className="font-mono text-[8px] uppercase tracking-wider" style={{ color: connected ? '#4ade80' : 'rgba(255,255,255,0.3)' }}>
+            {connected ? 'Online' : 'Offline'}
+          </span>
+        </div>
+      }>
+      <div className="flex flex-col gap-4 flex-1">
+        <div className="flex items-center gap-6 py-2 px-3 rounded"
+          style={{ background: 'rgba(34,211,238,0.03)', border: '1px solid rgba(34,211,238,0.1)' }}>
+          <div className="flex flex-col gap-1 flex-1">
+            <span className="font-mono text-[8px] text-white/30 uppercase tracking-widest">Download</span>
+            <span className="font-mono text-sm font-semibold" style={{ color: '#22d3ee' }}>{dlVal} <span className="text-[9px] text-white/30">{dlUnit}</span></span>
+          </div>
+          <div className="w-px h-10 bg-white/10" />
+          <div className="flex flex-col gap-1 flex-1">
+            <span className="font-mono text-[8px] text-white/30 uppercase tracking-widest">Upload</span>
+            <span className="font-mono text-sm font-semibold" style={{ color: '#60a5fa' }}>{ulVal} <span className="text-[9px] text-white/30">{ulUnit}</span></span>
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 // ── Devices Panel ──────────────────────────────────────────────────────────────
 
 function SmallDeviceRow({ entity, onToggle }: { entity: HAEntity; onToggle: () => void }) {
@@ -1266,7 +1307,7 @@ export function HomeAssistantPage({ onNavigateHome }: Props) {
         if (service === 'turn_on')       return { ...e, state: 'on',  attributes: { ...e.attributes, ...serviceData } };
         if (service === 'turn_off')      return { ...e, state: 'off' };
         if (service === 'toggle')        return { ...e, state: ['on','idle','playing'].includes(e.state) ? 'off' : 'on' };
-        if (service === 'select_source') return { ...e, attributes: { ...e.attributes, source: serviceData.source } };
+        if (service === 'select_source') return { ...e, attributes: { ...e.attributes, source: serviceData.source as string } };
         return e;
       }));
       setTimeout(() => fetchEntities(haUrl, haToken), 1500);
