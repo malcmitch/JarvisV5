@@ -19,6 +19,8 @@ from PIL import Image
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="mss")
 
+IS_MACOS = sys.platform == 'darwin'
+
 MODEL = "gpt-5.4"
 MAX_TURNS = 30
 TOOL_DEFS = [{"type": "computer"}]
@@ -31,10 +33,10 @@ SCREEN_W, SCREEN_H = pyautogui.size()
 KEY_MAP = {
     "CTRL":       "ctrl",
     "ALT":        "alt",
-    "META":       "command",
+    "META":       "command" if IS_MACOS else "win",
     "CMD":        "command",
     "COMMAND":    "command",
-    "SUPER":      "command",
+    "SUPER":      "command" if IS_MACOS else "win",
     "SHIFT":      "shift",
     "RETURN":     "enter",
     "ENTER":      "enter",
@@ -56,6 +58,8 @@ KEY_MAP = {
     "END":        "end",
     "PAGEUP":     "pageup",
     "PAGEDOWN":   "pagedown",
+    "WIN":        "win",
+    "WINDOWS":    "win",
 }
 
 

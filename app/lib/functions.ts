@@ -38,6 +38,22 @@ export interface JarvisFunction {
   handler: (args: Record<string, unknown>) => unknown | Promise<unknown>;
 }
 
+type DesktopPanelPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+function normalizeDesktopPanelPosition(value: unknown): DesktopPanelPosition | undefined {
+  if (typeof value !== 'string') return undefined;
+  const compact = value.toLowerCase().replace(/[\s_]+/g, '-');
+  if (
+    compact === 'top-left' ||
+    compact === 'top-right' ||
+    compact === 'bottom-left' ||
+    compact === 'bottom-right'
+  ) {
+    return compact;
+  }
+  return undefined;
+}
+
 // ── Calendar event fetching ───────────────────────────────────────────────────
 // Tries MCP (real event titles via OAuth) first, falls back to iCal feed.
 
@@ -199,6 +215,11 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       const task = args.task as string;
       if (!task) return { error: 'No task provided.' };
 
+      // Platform context so the computer-use AI knows the exact OS
+      const platform = typeof navigator !== 'undefined' ? navigator.platform : 'unknown';
+      const platformHint = `[Platform: ${platform}] `;
+      const enrichedTask = platformHint + task;
+
       const stored = localStorage.getItem('jarvis_settings');
       const apiKey = stored ? JSON.parse(stored).apiKey : '';
       if (!apiKey) return { error: 'No API key found in settings.' };
@@ -207,7 +228,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         const res = await fetch('/api/computer-use', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task, apiKey, ...readToolkitOverrides() }),
+          body: JSON.stringify({ task: enrichedTask, apiKey, ...readToolkitOverrides() }),
         });
         return await res.json();
       } catch (err) {
@@ -508,7 +529,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         "Use this to open applications, manage files, run scripts, get system info, or perform any task that can be done in a terminal. " +
         "On macOS use zsh syntax (e.g. 'open -a Discord'). On Windows use cmd/PowerShell syntax. " +
         "For multi-step tasks, chain commands with && or call this function multiple times. " +
-        "Prefer this over computer_use for anything that can be done via command line — it is faster and more reliable.",
+        "Prefer this over computer_use for anything that can be done via command line — it is faster and more reliable. ",
       parameters: {
         type: 'object',
         properties: {
@@ -521,7 +542,10 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
               "'say \"Hello\"' to speak text on Mac, " +
               "'ls ~/Desktop' to list files, " +
               "'mkdir ~/Desktop/NewFolder' to create a folder, " +
-              "'osascript -e \\'set volume output volume 50\\'' to set volume on Mac.",
+              "'osascript -e \\'set volume output volume 50\\'' to set volume on Mac, " +
+              "'osascript -e \\'tell application \"System Events\" to key code 103 using {command down, option down}\\'' to minimize all windows (show desktop) on macOS, " +
+              "'powershell -command \"(New-Object -ComObject Shell.Application).MinimizeAll()\"' to minimize all windows (show desktop) on Windows, " +
+              "'wmctrl -k on' to show the desktop on Linux (requires wmctrl installed).",
           },
         },
         required: ['command'],
@@ -968,6 +992,65 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       } catch (err) {
         return { error: String(err) };
       }
+    },
+  },
+  {
+    name: 'desktop_mode',
+    label: 'Desktop Mode',
+    description: 'Turn Jarvis into a floating transparent desktop logo, move it between screen corners, or restore the full app',
+    tool: {
+      type: 'function',
+      name: 'desktop_mode',
+      description:
+        'Control Jarvis desktop / hover / transparent / floating panel mode. ' +
+        'Use this when the user says "desktop mode", "transparent mode", "hover mode", "floating panel", "stay on top", "move to the top right corner", or "go back to full app". ' +
+        'In desktop mode only the Jarvis logo remains visible, stays above other apps, and clicking it toggles mute. ' +
+        'For corner-only requests, set action="move" and position to the requested corner.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['enable', 'disable', 'move'],
+            description: 'enable = enter transparent desktop mode. disable = restore full Jarvis app. move = move Jarvis logo to another corner.',
+          },
+          position: {
+            type: 'string',
+            enum: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
+            description: 'Target corner for the Jarvis logo. Defaults to bottom-right when enabling desktop mode.',
+          },
+        },
+        required: ['action'],
+      },
+    },
+    handler: (args) => {
+      const action = args.action as string;
+      const position = normalizeDesktopPanelPosition(args.position) ?? 'bottom-right';
+
+      if (!['enable', 'disable', 'move'].includes(action)) {
+        return { error: 'Invalid desktop mode action.' };
+      }
+
+      window.dispatchEvent(
+        new CustomEvent('jarvis:desktop-mode', {
+          detail: {
+            action,
+            position,
+          },
+        })
+      );
+
+      if (action === 'disable') {
+        window.dispatchEvent(new CustomEvent('jarvis:navigate', { detail: { page: 'home' } }));
+      }
+
+      const messages: Record<string, string> = {
+        enable: `Desktop mode enabled. Jarvis is floating in the ${position} corner.`,
+        disable: 'Desktop mode disabled. Restored full Jarvis app.',
+        move: `Jarvis panel moved to the ${position} corner.`,
+      };
+
+      return { success: true, action, position, message: messages[action] };
     },
   },
   {

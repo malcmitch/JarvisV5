@@ -1,8 +1,10 @@
 import {
   app,
   BrowserWindow,
+  ipcMain,
   shell,
   session,
+  screen,
   systemPreferences,
   dialog,
   protocol,
@@ -60,10 +62,321 @@ if (isDev && process.platform === 'darwin' && app.dock) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let desktopVisualWindow: BrowserWindow | null = null;
+let desktopHitboxWindow: BrowserWindow | null = null;
 let nextServer: ChildProcess | null = null;
 // Set to true only after the Next.js server is confirmed ready and the first
 // window has been created. Guards activate/reopen handlers from firing early.
 let appReady = false;
+let desktopModeEnabled = false;
+let normalWindowBounds: Electron.Rectangle | null = null;
+let desktopPanelPosition: DesktopPanelPosition = 'bottom-right';
+
+type DesktopPanelPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+interface DesktopModeOptions {
+  enabled: boolean;
+  position?: DesktopPanelPosition;
+  logo?: 'logo' | 'logo2';
+  muted?: boolean;
+}
+
+const DESKTOP_VISUAL_SIZE = 184;
+const DESKTOP_PANEL_MARGIN = 24;
+const DESKTOP_LOGO_HITBOX_SIZE = 104;
+
+function getDesktopDisplay() {
+  const existingWindow = desktopVisualWindow ?? desktopHitboxWindow;
+  return existingWindow
+    ? screen.getDisplayMatching(existingWindow.getBounds())
+    : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+}
+
+function getVisualBounds(position: DesktopPanelPosition): Electron.Rectangle {
+  const area = getDesktopDisplay().workArea;
+  const x =
+    position === 'top-left' || position === 'bottom-left'
+      ? area.x + DESKTOP_PANEL_MARGIN
+      : area.x + area.width - DESKTOP_VISUAL_SIZE - DESKTOP_PANEL_MARGIN;
+  const y =
+    position === 'top-left' || position === 'top-right'
+      ? area.y + DESKTOP_PANEL_MARGIN
+      : area.y + area.height - DESKTOP_VISUAL_SIZE - DESKTOP_PANEL_MARGIN;
+
+  return { x, y, width: DESKTOP_VISUAL_SIZE, height: DESKTOP_VISUAL_SIZE };
+}
+
+function getHitboxBounds(position: DesktopPanelPosition): Electron.Rectangle {
+  const visual = getVisualBounds(position);
+  const offset = Math.round((DESKTOP_VISUAL_SIZE - DESKTOP_LOGO_HITBOX_SIZE) / 2);
+  return {
+    x: visual.x + offset,
+    y: visual.y + offset,
+    width: DESKTOP_LOGO_HITBOX_SIZE,
+    height: DESKTOP_LOGO_HITBOX_SIZE,
+  };
+}
+
+function createDesktopWindow(kind: 'visual' | 'hitbox') {
+  const win = new BrowserWindow({
+    ...(kind === 'visual'
+      ? getVisualBounds(desktopPanelPosition)
+      : getHitboxBounds(desktopPanelPosition)),
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    show: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    alwaysOnTop: true,
+    title: kind === 'visual' ? 'Jarvis Desktop Visual' : 'Jarvis Desktop Hitbox',
+    icon: path.join(__dirname, '..', 'buildfiles', 'icon.png'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      backgroundThrottling: false,
+    },
+  });
+
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  return win;
+}
+
+function getCircularHitboxRects(): Electron.Rectangle[] {
+  const rects: Electron.Rectangle[] = [];
+  const radius = DESKTOP_LOGO_HITBOX_SIZE / 2;
+  const step = 4;
+
+  for (let y = 0; y < DESKTOP_LOGO_HITBOX_SIZE; y += step) {
+    const yFromCenter = y + step / 2 - radius;
+    const halfWidth = Math.sqrt(Math.max(0, radius * radius - yFromCenter * yFromCenter));
+    rects.push({
+      x: Math.round(radius - halfWidth),
+      y,
+      width: Math.round(halfWidth * 2),
+      height: step,
+    });
+  }
+
+  return rects;
+}
+
+function applyDesktopHitbox(win: BrowserWindow) {
+  if (process.platform !== 'darwin' && typeof win.setShape === 'function') {
+    win.setShape(getCircularHitboxRects());
+  }
+
+  if (process.platform === 'darwin') {
+    win.setIgnoreMouseEvents(true, { forward: true });
+  }
+}
+
+function hitboxHtml(muted = false) {
+  return encodeURIComponent(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:;" />
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      button {
+        width: ${DESKTOP_LOGO_HITBOX_SIZE}px;
+        height: ${DESKTOP_LOGO_HITBOX_SIZE}px;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="hitbox" aria-label="${muted ? 'Unmute Jarvis' : 'Mute Jarvis'}"></button>
+    <script>
+      const button = document.getElementById('hitbox');
+      let passthrough = true;
+      const setPassthrough = (next) => {
+        if (next === passthrough) return;
+        passthrough = next;
+        window.electron?.setDesktopPanelMousePassthrough?.(next);
+      };
+      if (navigator.platform.toLowerCase().includes('mac')) {
+        window.electron?.setDesktopPanelMousePassthrough?.(true);
+        window.addEventListener('mousemove', (event) => {
+          const rect = button.getBoundingClientRect();
+          const x = event.clientX - (rect.left + rect.width / 2);
+          const y = event.clientY - (rect.top + rect.height / 2);
+          setPassthrough(Math.hypot(x, y) > rect.width * 0.49);
+        });
+        window.addEventListener('mouseleave', () => setPassthrough(true));
+      }
+      button.addEventListener('click', () => window.electron?.overlayClick?.());
+      window.electron?.onDesktopPanelMuted?.((muted) => {
+        button.setAttribute('aria-label', muted ? 'Unmute Jarvis' : 'Mute Jarvis');
+      });
+    </script>
+  </body>
+</html>`);
+}
+
+function loadDesktopContent(logo?: 'logo' | 'logo2', muted?: boolean) {
+  const params = new URLSearchParams({
+    logo: logo ?? 'logo',
+    muted: muted ? '1' : '0',
+  });
+  desktopVisualWindow?.loadURL(`http://127.0.0.1:${PORT}/desktop-overlay?${params.toString()}`);
+  desktopHitboxWindow?.loadURL(`data:text/html;charset=utf-8,${hitboxHtml(muted)}`);
+}
+
+function createDesktopOverlay(logo?: 'logo' | 'logo2', muted?: boolean) {
+  if (!desktopVisualWindow) {
+    desktopVisualWindow = createDesktopWindow('visual');
+    desktopVisualWindow.setIgnoreMouseEvents(true, { forward: true });
+    desktopVisualWindow.on('closed', () => {
+      desktopVisualWindow = null;
+    });
+  }
+
+  if (!desktopHitboxWindow) {
+    desktopHitboxWindow = createDesktopWindow('hitbox');
+    applyDesktopHitbox(desktopHitboxWindow);
+    desktopHitboxWindow.on('closed', () => {
+      desktopHitboxWindow = null;
+    });
+  }
+
+  loadDesktopContent(logo, muted);
+
+  desktopVisualWindow.once('ready-to-show', () => {
+    desktopVisualWindow?.showInactive();
+  });
+  desktopHitboxWindow.once('ready-to-show', () => {
+    desktopHitboxWindow?.showInactive();
+    desktopHitboxWindow?.moveTop();
+  });
+
+  return { visual: desktopVisualWindow, hitbox: desktopHitboxWindow };
+}
+
+function setDesktopOverlayBounds(position: DesktopPanelPosition) {
+  desktopVisualWindow?.setBounds(getVisualBounds(position));
+  desktopHitboxWindow?.setBounds(getHitboxBounds(position));
+  if (desktopHitboxWindow) applyDesktopHitbox(desktopHitboxWindow);
+}
+
+function animateWindowTo(win: BrowserWindow, to: Electron.Rectangle) {
+  const from = win.getBounds();
+  const startedAt = Date.now();
+  const duration = 320;
+
+  const timer = setInterval(() => {
+    if (win.isDestroyed()) {
+      clearInterval(timer);
+      return;
+    }
+
+    const t = Math.min(1, (Date.now() - startedAt) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    win.setBounds({
+      x: Math.round(from.x + (to.x - from.x) * eased),
+      y: Math.round(from.y + (to.y - from.y) * eased),
+      width: to.width,
+      height: to.height,
+    });
+    if (t >= 1) clearInterval(timer);
+  }, 16);
+}
+
+function animateDesktopOverlayTo(position: DesktopPanelPosition) {
+  desktopPanelPosition = position;
+  if (desktopVisualWindow) animateWindowTo(desktopVisualWindow, getVisualBounds(position));
+  if (desktopHitboxWindow) animateWindowTo(desktopHitboxWindow, getHitboxBounds(position));
+}
+
+function closeDesktopOverlay() {
+  desktopVisualWindow?.close();
+  desktopVisualWindow = null;
+  desktopHitboxWindow?.close();
+  desktopHitboxWindow = null;
+}
+
+function setDesktopMode(options: DesktopModeOptions) {
+  if (!mainWindow) return { success: false, error: 'Main window is not ready.' };
+
+  if (options.position) desktopPanelPosition = options.position;
+
+  if (options.enabled) {
+    if (!desktopModeEnabled) {
+      normalWindowBounds = mainWindow.getBounds();
+    }
+    desktopModeEnabled = true;
+    mainWindow.hide();
+    const overlay = createDesktopOverlay(options.logo, options.muted);
+    setDesktopOverlayBounds(desktopPanelPosition);
+    overlay.visual.setAlwaysOnTop(true, 'screen-saver');
+    overlay.hitbox.setAlwaysOnTop(true, 'screen-saver');
+    overlay.visual.showInactive();
+    overlay.hitbox.showInactive();
+    overlay.hitbox.moveTop();
+    return { success: true, enabled: true, position: desktopPanelPosition };
+  }
+
+  desktopModeEnabled = false;
+  closeDesktopOverlay();
+
+  if (normalWindowBounds) {
+    mainWindow.setBounds(normalWindowBounds);
+  }
+  mainWindow.show();
+  mainWindow.focus();
+  return { success: true, enabled: false };
+}
+
+function setupDesktopModeIpc() {
+  ipcMain.handle('desktop-mode:set', (_event, options: DesktopModeOptions) => {
+    return setDesktopMode(options);
+  });
+
+  ipcMain.handle('desktop-mode:move', (_event, position: DesktopPanelPosition) => {
+    desktopPanelPosition = position;
+    animateDesktopOverlayTo(position);
+    return { success: true, position };
+  });
+
+  ipcMain.on('desktop-mode:overlay-clicked', () => {
+    mainWindow?.webContents.send('desktop-mode:overlay-click');
+  });
+
+  ipcMain.on('desktop-mode:muted', (_event, muted: boolean) => {
+    desktopVisualWindow?.webContents.send('desktop-mode:muted', muted);
+    desktopHitboxWindow?.webContents.send('desktop-mode:muted', muted);
+  });
+
+  ipcMain.on('desktop-mode:mouse-passthrough', (_event, passthrough: boolean) => {
+    if (process.platform !== 'darwin') return;
+    desktopHitboxWindow?.setIgnoreMouseEvents(passthrough, { forward: true });
+  });
+}
 
 function waitForServer(retries = 40, delay = 500): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -192,7 +505,8 @@ function createWindow() {
     minHeight: 700,
     title: 'Jarvis',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    backgroundColor: '#000000',
+    backgroundColor: '#00000000',
+    transparent: true,
     show: false,
     icon: path.join(__dirname, '..', 'buildfiles', 'icon.png'),
     webPreferences: {
@@ -200,6 +514,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
+      backgroundThrottling: false,
     },
   });
 
@@ -220,6 +535,7 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    closeDesktopOverlay();
   });
 }
 
@@ -264,6 +580,7 @@ app.whenReady().then(async () => {
 
   registerJarvisPdfProtocol();
   setupPermissions();
+  setupDesktopModeIpc();
   await requestMediaPermissions();
   requestAccessibilityAndScreenRecording();
 

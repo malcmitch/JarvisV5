@@ -23,7 +23,7 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   elevenLabsFirstMessage: '',
   voice: 'echo',
   initialPrompt: 'You are Jarvis, a helpful AI assistant. You are always helpful, polite, and concise. Subtle British accent. Robotic. Emotionally controlled. Witty and a little bit poking fun at the user.',
-  enabledFunctions: [],
+  enabledFunctions: ['desktop_mode'],
   theme: 'arc-reactor',
   grid: 'off',
   visualizer: 'frequency-ring',
@@ -32,6 +32,17 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   shellPathOverride: '',
   pythonPathOverride: '',
 };
+
+type DesktopPanelPosition = Exclude<JarvisSettings['position'], 'center'>;
+
+function isDesktopPanelPosition(value: unknown): value is DesktopPanelPosition {
+  return (
+    value === 'top-left' ||
+    value === 'top-right' ||
+    value === 'bottom-left' ||
+    value === 'bottom-right'
+  );
+}
 
 export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   const [status, setStatus] = useState<'idle' | 'listening' | 'active' | 'error'>('idle');
@@ -111,8 +122,14 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   const [settings, setSettings] = useState<JarvisSettings>(DEFAULT_SETTINGS);
   const [restartTrigger, setRestartTrigger] = useState(0);
   const [mounted, setMounted] = useState(false);
+  const desktopModeRef = useRef(false);
+  const desktopPanelPositionRef = useRef<DesktopPanelPosition>('bottom-right');
+  const normalPositionBeforeDesktopRef = useRef<JarvisSettings['position'] | null>(null);
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // Install global error interceptors once so all console.error calls,
   // uncaught JS errors, and unhandled rejections stream to TerminalWidget.
@@ -125,6 +142,80 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     micMutedRef.current = micMuted;
   }, [micMuted]);
+
+  useEffect(() => {
+    const unsubscribe = window.electron?.onDesktopOverlayClick?.(() => {
+      sfx('click', 0.45);
+      setMicrophoneMuted(!micMutedRef.current);
+    });
+
+    return () => unsubscribe?.();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{
+        action?: 'enable' | 'disable' | 'move';
+        position?: DesktopPanelPosition;
+      }>).detail ?? {};
+      const action = detail.action;
+      const requestedPosition = isDesktopPanelPosition(detail.position)
+        ? detail.position
+        : undefined;
+
+      if (!action) return;
+
+      if (action === 'enable') {
+        const position = requestedPosition ?? desktopPanelPositionRef.current;
+        desktopPanelPositionRef.current = position;
+        if (!desktopModeRef.current) {
+          normalPositionBeforeDesktopRef.current = settings.position ?? 'center';
+        }
+        desktopModeRef.current = true;
+        if (!window.electron?.isElectron) return;
+        void window.electron.setDesktopMode({
+          enabled: true,
+          position,
+          logo: settings.logo ?? 'logo',
+          muted: micMutedRef.current,
+        });
+        return;
+      }
+
+      if (action === 'disable') {
+        const savedNormalPosition = normalPositionBeforeDesktopRef.current;
+        const restorePosition =
+          savedNormalPosition && savedNormalPosition !== desktopPanelPositionRef.current
+            ? savedNormalPosition
+            : 'center';
+        desktopModeRef.current = false;
+        normalPositionBeforeDesktopRef.current = null;
+        setSettings((prev) => {
+          const updated = { ...prev, position: restorePosition };
+          localStorage.setItem('jarvis_settings', JSON.stringify(updated));
+          return updated;
+        });
+        if (!window.electron?.isElectron) return;
+        void window.electron.setDesktopMode({ enabled: false });
+        return;
+      }
+
+      const position = requestedPosition ?? desktopPanelPositionRef.current;
+      desktopPanelPositionRef.current = position;
+      if (!desktopModeRef.current) {
+        setSettings((prev) => {
+          const updated = { ...prev, position };
+          localStorage.setItem('jarvis_settings', JSON.stringify(updated));
+          return updated;
+        });
+      }
+      if (!window.electron?.isElectron) return;
+      void window.electron.moveDesktopPanel(position);
+    };
+
+    window.addEventListener('jarvis:desktop-mode', handler);
+    return () => window.removeEventListener('jarvis:desktop-mode', handler);
+  }, [settings.logo, settings.position]);
 
   // Status-change sound effects
   const prevStatusRef = useRef(status);
@@ -307,20 +398,30 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
 
   // Load settings from localStorage
   useEffect(() => {
-    const stored = localStorage.getItem('jarvis_settings');
-    if (stored) {
-      try {
-        setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(stored) });
-      } catch (e) {
-        console.error('Failed to parse settings', e);
+    const timer = window.setTimeout(() => {
+      const stored = localStorage.getItem('jarvis_settings');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as Partial<JarvisSettings>;
+          const enabledFunctions = Array.from(new Set([
+            ...DEFAULT_SETTINGS.enabledFunctions,
+            ...(parsed.enabledFunctions ?? []),
+          ]));
+          const nextSettings = { ...DEFAULT_SETTINGS, ...parsed, enabledFunctions };
+          setSettings(nextSettings);
+          localStorage.setItem('jarvis_settings', JSON.stringify(nextSettings));
+        } catch (e) {
+          console.error('Failed to parse settings', e);
+        }
+      } else {
+        // Fallback to env var if available
+        const envKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+        if (envKey) {
+          setSettings(prev => ({ ...prev, apiKey: envKey }));
+        }
       }
-    } else {
-      // Fallback to env var if available
-      const envKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-      if (envKey) {
-        setSettings(prev => ({ ...prev, apiKey: envKey }));
-      }
-    }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Load dynamic functions (MCP + Skills) on mount — runs before auto-start.
@@ -351,7 +452,6 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   // Keep elClientToolsRef in sync with dynamic function state
   useEffect(() => {
     const fns = dynamicState.loaded ? dynamicState.allFunctions : FUNCTION_REGISTRY;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     elClientToolsRef.current = Object.fromEntries(
       fns.map((fn) => [
         fn.name,
@@ -391,8 +491,10 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   // Audio level monitoring with FFT
   useEffect(() => {
     if (status !== 'active') {
-      setAudioLevel(0);
-      setFftData(new Array(FFT_BARS).fill(0));
+      const resetTimer = window.setTimeout(() => {
+        setAudioLevel(0);
+        setFftData(new Array(FFT_BARS).fill(0));
+      }, 0);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
@@ -401,7 +503,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
         audioContextRef.current.close();
         audioContextRef.current = null;
       }
-      return;
+      return () => window.clearTimeout(resetTimer);
     }
 
     const checkStream = setInterval(() => {
@@ -803,6 +905,9 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     });
 
     try { elConversation.setMuted(muted); } catch { /* ElevenLabs session may be inactive */ }
+    if (desktopModeRef.current) {
+      window.electron?.setDesktopPanelMuted?.(muted);
+    }
   }
 
   function handleLogoClick() {
@@ -825,10 +930,14 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     const shouldStart =
       (mode === 'elevenlabs' && !!settings.elevenLabsAgentId?.trim()) ||
       (mode === 'openai' && !!settings.apiKey);
-    if (shouldStart) {
-      start(settings);
-    }
-    return () => disconnect();
+    const startTimer = shouldStart
+      ? window.setTimeout(() => void start(settings), 0)
+      : null;
+
+    return () => {
+      if (startTimer !== null) window.clearTimeout(startTimer);
+      disconnect();
+    };
   }, [settings.apiKey, settings.apiMode, restartTrigger, dynamicState.loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveSettings = (newSettings: JarvisSettings) => {

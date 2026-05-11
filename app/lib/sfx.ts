@@ -6,6 +6,9 @@
 
 const cache: Record<string, HTMLAudioElement> = {};
 
+/** Counter to detect stale closures on rapid re-plays of the same cached Audio element. */
+let rateGen = 0;
+
 export type SFXName =
   | 'intro_sfx'
   | 'intro2'
@@ -54,9 +57,19 @@ export function sfx(name: SFXName, volume = 1, rate = 1): void {
       cache[name] = audio;
     }
     audio.volume = Math.max(0, Math.min(1, volume));
-    audio.playbackRate = rate;
     audio.currentTime = 0;
-    audio.play().catch(() => { /* user hasn't interacted yet — silent fail */ });
+    audio.playbackRate = rate;
+    const thisGen = ++rateGen;
+    audio.dataset['rateGen'] = String(thisGen);
+    void audio.play().then(() => {
+      // Stale — a newer call has taken over the shared Audio element
+      if (audio.dataset['rateGen'] !== String(thisGen)) return;
+      // Re-assert after play() resolves — beats the Chromium quirk
+      // where seeking or ended-state can silently reset playbackRate to 1.0
+      if (audio.playbackRate !== rate) {
+        audio.playbackRate = rate;
+      }
+    }).catch(() => { /* user hasn't interacted yet — silent fail */ });
   } catch {
     // Non-critical — never throw
   }

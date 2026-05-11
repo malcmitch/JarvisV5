@@ -146,6 +146,23 @@ export const loadDynamicFunctions: () => Promise<DynamicFunctionState> =
         ...filteredSkills,
       ];
 
+      // Inject platform context into the shell command tool description so the AI
+      // knows the user's OS without having to ask or guess.
+      const platform = typeof navigator !== 'undefined' ? navigator.platform : 'unknown';
+      if (platform !== 'unknown') {
+        const shellTool = allFunctions.find((f) => f.name === 'run_shell_command');
+        if (shellTool) {
+          const platformLabel = platform.startsWith('Win')
+            ? 'Windows'
+            : platform.startsWith('Mac')
+              ? 'macOS'
+              : 'Linux';
+          if (!shellTool.tool.description.startsWith('[User OS:')) {
+            shellTool.tool.description = `[User OS: ${platformLabel}] ${shellTool.tool.description}`;
+          }
+        }
+      }
+
       return {
         allFunctions,
         mcpFunctions: filteredMcp,
