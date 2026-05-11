@@ -675,7 +675,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       type: 'function',
       name: 'get_now_playing',
       description:
-        "Get the currently playing track (title, artist, album). On macOS: Spotify / Apple Music / system Now Playing. On Windows: whatever app owns the system media session (e.g. Spotify, Edge). Opens the music widget when invoked.",
+        "Get the currently playing track (title, artist, album). On macOS: Spotify / Apple Music / system Now Playing. On Windows: whatever app owns the system media session (e.g. Spotify, Edge).",
       parameters: { type: 'object', properties: {}, required: [] },
     },
     handler: async () => {
@@ -978,11 +978,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       type: 'function',
       name: 'navigate_to_page',
       description:
-        'Navigate Jarvis to a different page. Use for "home", "news", "calendar", "home-assistant", or "3d-printers". ' +
+        'Navigate Jarvis to a different page. Use for "home", "news", "calendar", "home-assistant", "3d-printers", or "music". ' +
         '"news" opens the live news feed with streaming video and market data. ' +
         '"calendar" opens the calendar and task planner. ' +
         '"home-assistant" opens the smart home control panel for lights, switches, climate, and more. ' +
         '"3d-printers" opens the 3D printer dashboard to monitor and control Bambu Lab printers. ' +
+        '"music" opens the full-screen music player with the spinning record visualization. ' +
         '"home" returns to the main Jarvis home screen. ' +
         'NEVER use this for map or location requests — use map_command instead.',
       parameters: {
@@ -990,8 +991,8 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         properties: {
           page: {
             type: 'string',
-            enum: ['home', 'news', 'calendar', 'home-assistant', '3d-printers'],
-            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner. "home-assistant" = smart home control panel. "3d-printers" = Bambu Lab 3D printer dashboard.',
+            enum: ['home', 'news', 'calendar', 'home-assistant', '3d-printers', 'music'],
+            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner. "home-assistant" = smart home control panel. "3d-printers" = Bambu Lab 3D printer dashboard. "music" = full-screen music player.',
           },
         },
         required: ['page'],
@@ -1129,6 +1130,26 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           success: true,
           navigated_to: page,
           instruction: 'The 3D Printer dashboard is open. Ask the user to connect their Bambu Lab account if they haven\'t yet.',
+        };
+      }
+
+      if (page === 'music') {
+        try {
+          const res  = await fetch('/api/music');
+          const data = await res.json() as { title?: string; artist?: string; isPlaying?: boolean; error?: string };
+          if (!data.error && data.title) {
+            return {
+              success: true,
+              navigated_to: page,
+              now_playing: { title: data.title, artist: data.artist, playing: data.isPlaying },
+              instruction: `The music page is now open — the spinning record visualizer is showing. ${data.isPlaying ? `Currently playing "${data.title}" by ${data.artist}. Let the user know what's on.` : `Nothing is playing right now. Let the user know the music player is open.`}`,
+            };
+          }
+        } catch { /* fall through */ }
+        return {
+          success: true,
+          navigated_to: page,
+          instruction: 'The music player is now open. Let the user know.',
         };
       }
 
@@ -1586,6 +1607,237 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       } catch (e) {
         return { success: false, message: `Failed to control device: ${String(e)}` };
       }
+    },
+  },
+  {
+    name: 'printer_command',
+    label: '3D Printers',
+    description: 'Check status of Bambu Lab 3D printers and send print control commands',
+    tool: {
+      type: 'function',
+      name: 'printer_command',
+      description:
+        'Query and control Bambu Lab 3D printers via the cloud. ' +
+        'Use "status" to get the current state of all printers (temperatures, progress, current job, filament). ' +
+        'Use "pause", "resume", or "stop" to control an active print job. ' +
+        'Examples: "what are my printers doing?" → status. "pause the print" → pause. "how much time is left?" → status.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+            enum: ['status', 'pause', 'resume', 'stop'],
+            description: '"status" = get all printer states and active jobs. "pause"/"resume"/"stop" = control an active print.',
+          },
+          printer_name: {
+            type: 'string',
+            description: 'Optional printer name to target for pause/resume/stop. If omitted and only one printer is active, it is used automatically.',
+          },
+        },
+        required: ['command'],
+      },
+    },
+    handler: async (args) => {
+      const command     = args.command      as string;
+      const printerName = args.printer_name as string | undefined;
+
+      // Navigate to the printer page so the user can see changes
+      window.dispatchEvent(new CustomEvent('jarvis:navigate', { detail: { page: '3d-printers' } }));
+
+      try {
+        // Fetch printers + telemetry
+        const [printersRes, telRes] = await Promise.all([
+          fetch('/api/bambu/printers'),
+          fetch('/api/bambu/telemetry'),
+        ]);
+
+        if (!printersRes.ok) {
+          return { success: false, message: 'Could not reach the 3D printer service. Make sure you are connected to Bambu Cloud on the 3D Printers page.' };
+        }
+
+        const printers = await printersRes.json() as Array<{ deviceId: string; name: string; model?: string }>;
+        const telemetry: Record<string, {
+          gcode_state?: string; subtask_name?: string; mc_percent?: number;
+          mc_remaining_time?: number; nozzle_temper?: number; nozzle_target_temper?: number;
+          bed_temper?: number; bed_target_temper?: number; chamber_temper?: number;
+          wifi_signal?: string; ams?: unknown;
+        }> = telRes.ok ? await telRes.json() : {};
+
+        if (command === 'status') {
+          if (!printers.length) {
+            return { success: true, message: 'No printers found. Make sure your Bambu Lab account is connected and printers are registered.', instruction: 'Tell the user no printers were found and to check their Bambu Lab account.' };
+          }
+
+          const summaries = printers.map((p) => {
+            const t = telemetry[p.deviceId] ?? {};
+            const state = t.gcode_state ?? 'Unknown';
+            const lines: string[] = [`${p.name}${p.model ? ` (${p.model})` : ''}: ${state}`];
+            if (t.subtask_name && t.subtask_name !== '-') lines.push(`  Job: ${t.subtask_name}`);
+            if (t.mc_percent != null) lines.push(`  Progress: ${t.mc_percent}%`);
+            if (t.mc_remaining_time) {
+              const h = Math.floor(t.mc_remaining_time / 3600);
+              const m = Math.floor((t.mc_remaining_time % 3600) / 60);
+              lines.push(`  Time remaining: ${h > 0 ? `${h}h ` : ''}${m}m`);
+            }
+            if (t.nozzle_temper != null) lines.push(`  Nozzle: ${Math.round(t.nozzle_temper)}°C / ${t.nozzle_target_temper ?? 0}°C target`);
+            if (t.bed_temper != null)    lines.push(`  Bed: ${Math.round(t.bed_temper)}°C / ${t.bed_target_temper ?? 0}°C target`);
+            if (t.chamber_temper != null) lines.push(`  Chamber: ${Math.round(t.chamber_temper)}°C`);
+            return lines.join('\n');
+          });
+
+          const activePrinters = printers.filter((p) => ['RUNNING','PAUSE'].includes((telemetry[p.deviceId]?.gcode_state ?? '').toUpperCase()));
+
+          return {
+            success: true,
+            printer_count: printers.length,
+            active_count: activePrinters.length,
+            details: summaries.join('\n\n'),
+            instruction: `Here is the current status of your 3D printers:\n\n${summaries.join('\n\n')}\n\nGive the user a clear, natural voice summary. Mention what is printing, how far along it is, and any key temperatures. Keep it concise.`,
+          };
+        }
+
+        // pause / resume / stop — find target printer
+        const activeList = printers.filter((p) => {
+          const s = (telemetry[p.deviceId]?.gcode_state ?? '').toUpperCase();
+          return command === 'resume' ? s === 'PAUSE' : s === 'RUNNING' || s === 'PAUSE';
+        });
+
+        let target = activeList[0];
+        if (printerName) {
+          const match = activeList.find((p) => p.name.toLowerCase().includes(printerName.toLowerCase()));
+          if (match) target = match;
+        }
+
+        if (!target) {
+          return { success: false, message: `No active printer found to ${command}.`, instruction: `Tell the user there is no printer currently ${command === 'resume' ? 'paused' : 'printing'} that can be ${command}d.` };
+        }
+
+        const cmdRes = await fetch('/api/bambu/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceId: target.deviceId, command }),
+        });
+
+        if (!cmdRes.ok) {
+          const err = await cmdRes.json() as { error?: string };
+          return { success: false, message: err.error ?? 'Command failed' };
+        }
+
+        return {
+          success: true,
+          printer: target.name,
+          command,
+          instruction: `Successfully sent "${command}" to ${target.name}. Confirm to the user that the print has been ${command === 'pause' ? 'paused' : command === 'resume' ? 'resumed' : 'stopped'}.`,
+        };
+      } catch (e) {
+        return { success: false, message: `Printer service error: ${String(e)}` };
+      }
+    },
+  },
+  {
+    name: 'add_home_widget',
+    label: 'Home Dashboard Widget',
+    description: 'Add or remove a live widget on the Jarvis home dashboard',
+    tool: {
+      type: 'function',
+      name: 'add_home_widget',
+      description:
+        'Add or remove a live widget on the Jarvis home screen dashboard. ' +
+        'Use "add" to place a widget, "remove" to close it. ' +
+        'Widget types: ' +
+        '"tv" = TV remote control panel (power, source selection, volume). ' +
+        '"printer" = 3D printer live status card with progress and controls — use printer_name to target a specific printer. ' +
+        '"weather-home" = current weather conditions. ' +
+        '"ha-device" = Home Assistant device controls — use entity_ids array or domain to specify which devices. ' +
+        'Examples: "add the TV to the dashboard" → widget_type=tv, action=add. ' +
+        '"show the X1 Carbon on the home page" → widget_type=printer, printer_name="X1 Carbon", action=add. ' +
+        '"add my lights to the dashboard" → widget_type=ha-device, domain=light, action=add. ' +
+        '"remove the weather widget" → widget_type=weather-home, action=remove.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['add', 'remove'],
+            description: '"add" opens the widget on the home screen. "remove" closes it.',
+          },
+          widget_type: {
+            type: 'string',
+            enum: ['tv', 'printer', 'weather-home', 'ha-device'],
+            description: 'Which widget to add or remove.',
+          },
+          title: {
+            type: 'string',
+            description: 'Optional custom title for the widget header (e.g. "Living Room TV", "X1 Carbon").',
+          },
+          printer_name: {
+            type: 'string',
+            description: 'For widget_type=printer: the printer name to display (e.g. "X1 Carbon", "A1 Mini"). Leave empty to show all printers.',
+          },
+          domain: {
+            type: 'string',
+            description: 'For widget_type=ha-device: HA domain to filter devices (e.g. "light", "switch", "climate").',
+          },
+          entity_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'For widget_type=ha-device: specific entity IDs to show (e.g. ["light.living_room", "switch.fan"]).',
+          },
+          name_filter: {
+            type: 'string',
+            description: 'For widget_type=ha-device: fuzzy name filter to show devices whose friendly name matches (e.g. "bedroom").',
+          },
+        },
+        required: ['action', 'widget_type'],
+      },
+    },
+    handler: async (args) => {
+      const action      = args.action      as string;
+      const widgetType  = args.widget_type as string;
+      const title       = args.title       as string | undefined;
+      const printerName = args.printer_name as string | undefined;
+      const domain      = args.domain      as string | undefined;
+      const entityIds   = args.entity_ids  as string[] | undefined;
+      const nameFilter  = args.name_filter as string | undefined;
+
+      const widgetConfig: Record<string, unknown> = {};
+      if (printerName) widgetConfig.printer_name = printerName;
+      if (domain)      widgetConfig.domain = domain;
+      if (entityIds?.length) widgetConfig.entity_ids = entityIds;
+      if (nameFilter)  widgetConfig.name = nameFilter;
+
+      if (action === 'add') {
+        window.dispatchEvent(new CustomEvent('jarvis:hud', {
+          detail: {
+            command: 'open',
+            widget: widgetType,
+            title: title ?? undefined,
+            widget_config: Object.keys(widgetConfig).length > 0 ? widgetConfig : undefined,
+          },
+        }));
+
+        const widgetNames: Record<string, string> = {
+          'tv': 'TV Control', 'printer': 'Printer Status',
+          'weather-home': 'Weather', 'ha-device': 'Device Controls',
+        };
+        const label = title ?? widgetNames[widgetType] ?? widgetType;
+        return {
+          success: true,
+          instruction: `Added the "${label}" widget to your home dashboard. Let the user know it's now visible on the home screen.`,
+        };
+      }
+
+      if (action === 'remove') {
+        window.dispatchEvent(new CustomEvent('jarvis:hud', {
+          detail: { command: 'close', widget: widgetType },
+        }));
+        return {
+          success: true,
+          instruction: `Removed the ${widgetType} widget from the dashboard. Confirm to the user.`,
+        };
+      }
+
+      return { success: false, message: 'Unknown action' };
     },
   },
 ];

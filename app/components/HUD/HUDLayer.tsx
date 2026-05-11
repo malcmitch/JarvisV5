@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { sfx } from '../../lib/sfx';
 import { HUDModule } from './HUDModule';
 import { SystemStatusWidget } from './widgets/SystemStatusWidget';
@@ -14,8 +14,12 @@ import { TextWidget } from './widgets/TextWidget';
 import { PdfWidget } from './widgets/PdfWidget';
 import { ImageWidget } from './widgets/ImageWidget';
 import { TerminalWidget } from './widgets/TerminalWidget';
+import { TVWidget } from './widgets/TVWidget';
+import { PrinterWidget } from './widgets/PrinterWidget';
+import { WeatherHomeWidget } from './widgets/WeatherHomeWidget';
+import { HADeviceWidget } from './widgets/HADeviceWidget';
 
-type WidgetType = 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image' | 'terminal';
+type WidgetType = 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image' | 'terminal' | 'tv' | 'printer' | 'weather-home' | 'ha-device';
 
 interface ModuleData {
   id: string;
@@ -37,19 +41,25 @@ interface ModuleData {
   imageCaption?: string;
   /** If set, x is recomputed as (windowWidth - rightOffset) on resize */
   rightOffset?: number;
+  /** Extra config for dynamic widgets (tv, printer, ha-device) */
+  widgetConfig?: Record<string, unknown>;
 }
 
 const WIDGET_META: Record<WidgetType, { title: string; width: number; height: number }> = {
-  clock:    { title: 'LOCAL TIME',      width: 300, height: 180 },
-  system:   { title: 'SYSTEM STATUS',   width: 300, height: 250 },
-  network:  { title: 'NETWORK TRAFFIC', width: 300, height: 200 },
-  map:      { title: 'GEO-LOCATION',    width: 400, height: 250 },
-  suit:     { title: 'MK.2 ARMOR',      width: 240, height: 500 },
-  music:    { title: 'NOW PLAYING',     width: 300, height: 230 },
-  text:     { title: 'TEXT NOTE',       width: 380, height: 280 },
-  pdf:      { title: 'DOCUMENT',        width: 440, height: 340 },
-  image:    { title: 'IMAGE',           width: 400, height: 360 },
-  terminal: { title: 'ERROR TERMINAL',  width: 540, height: 380 },
+  clock:        { title: 'LOCAL TIME',      width: 300, height: 180 },
+  system:       { title: 'SYSTEM STATUS',   width: 300, height: 250 },
+  network:      { title: 'NETWORK TRAFFIC', width: 300, height: 200 },
+  map:          { title: 'GEO-LOCATION',    width: 400, height: 250 },
+  suit:         { title: 'MK.2 ARMOR',      width: 240, height: 500 },
+  music:        { title: 'NOW PLAYING',     width: 280, height: 340 },
+  text:         { title: 'TEXT NOTE',       width: 380, height: 280 },
+  pdf:          { title: 'DOCUMENT',        width: 440, height: 340 },
+  image:        { title: 'IMAGE',           width: 400, height: 360 },
+  terminal:     { title: 'ERROR TERMINAL',  width: 540, height: 380 },
+  tv:           { title: 'TV CONTROL',      width: 320, height: 260 },
+  printer:      { title: '3D PRINTER',      width: 300, height: 340 },
+  'weather-home': { title: 'WEATHER',       width: 280, height: 140 },
+  'ha-device':  { title: 'DEVICES',         width: 280, height: 260 },
 };
 
 function buildDefaultModules(w: number): ModuleData[] {
@@ -95,9 +105,10 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
         image_caption?: string;
         image_error?: string;
         id?: string;
+        widget_config?: Record<string, unknown>;
       }>).detail;
 
-      const { command, widget, text, title, pdf_source, module_id, image_loading, image_base64, image_caption } =
+      const { command, widget, text, title, pdf_source, module_id, image_loading, image_base64, image_caption, widget_config } =
         detail;
 
       if (command === 'set_image') {
@@ -142,18 +153,14 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
         const newModuleId =
           type === 'image' && module_id?.trim() ? module_id.trim() : String(Date.now());
         setModules(prev => {
-          if (type !== 'text' && type !== 'pdf' && type !== 'image' && prev.some(m => m.type === type)) return prev;
+          const multiInstance = ['text', 'pdf', 'image', 'printer', 'ha-device'].includes(type);
+          if (!multiInstance && prev.some(m => m.type === type)) return prev;
           const meta = WIDGET_META[type];
           const stagger =
-            (prev.filter(m => m.type === 'text' || m.type === 'pdf' || m.type === 'image').length % 6) * 28;
-          const moduleTitle =
-            type === 'text' && title?.trim()
-              ? title.trim().toUpperCase()
-              : type === 'pdf' && title?.trim()
-                ? title.trim().toUpperCase()
-                : type === 'image' && title?.trim()
-                  ? title.trim().toUpperCase()
-                  : meta.title;
+            (prev.filter(m => m.type === 'text' || m.type === 'pdf' || m.type === 'image' || m.type === 'printer' || m.type === 'ha-device').length % 6) * 28;
+          const moduleTitle = title?.trim()
+            ? title.trim().toUpperCase()
+            : meta.title;
           const textContent = type === 'text' ? (text ?? '') : undefined;
           const pdfSource = type === 'pdf' ? (pdf_source ?? '').trim() : undefined;
           if (type === 'pdf' && !pdfSource) return prev;
@@ -171,6 +178,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
               height: meta.height,
               textContent,
               pdfSource,
+              widgetConfig: widget_config,
               ...(type === 'image'
                 ? {
                     imageLoading: !!image_loading,
@@ -230,7 +238,12 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
         )}
       </AnimatePresence>
 
-      {modules.map(module => (
+      {/* Music floater — bare draggable, no HUDModule chrome */}
+      {modules.filter(m => m.type === 'music').map(module => (
+        <MusicFloater key={module.id} initialX={module.x} initialY={module.y} onClose={() => removeModule(module.id)} />
+      ))}
+
+      {modules.filter(m => m.type !== 'music').map(module => (
         <HUDModule
           key={module.id}
           id={module.id}
@@ -252,7 +265,6 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
           {module.type === 'network' && <NetworkGraphWidget />}
           {module.type === 'map' && <MapWidget />}
           {module.type === 'suit' && <SuitWidget />}
-          {module.type === 'music' && <MusicWidget />}
           {module.type === 'text' && (
             <TextWidget content={module.textContent ?? ''} />
           )}
@@ -268,8 +280,43 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
             />
           )}
           {module.type === 'terminal' && <TerminalWidget />}
+          {module.type === 'tv' && <TVWidget />}
+          {module.type === 'printer' && <PrinterWidget config={module.widgetConfig} />}
+          {module.type === 'weather-home' && <WeatherHomeWidget />}
+          {module.type === 'ha-device' && <HADeviceWidget config={module.widgetConfig} />}
         </HUDModule>
       ))}
+    </div>
+  );
+}
+
+// ── Bare draggable music floater (no HUDModule chrome) ─────────────────────
+function MusicFloater({ initialX, initialY, onClose }: { initialX: number; initialY: number; onClose: () => void }) {
+  const constraintsRef = useRef<HTMLDivElement>(null);
+  return (
+    <div ref={constraintsRef} className="fixed inset-0 pointer-events-none z-20">
+      <motion.div
+        drag
+        dragMomentum={false}
+        initial={{ x: initialX, y: initialY, opacity: 0, scale: 0.92 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.88 }}
+        transition={{ duration: 0.25 }}
+        className="absolute pointer-events-auto group"
+        style={{ width: 280, top: 0, left: 0, cursor: 'grab' }}
+      >
+        {/* Close button — only visible on hover */}
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/15"
+          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+        >
+          <svg viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M2 2l6 6M8 2l-6 6"/>
+          </svg>
+        </button>
+        <MusicWidget />
+      </motion.div>
     </div>
   );
 }

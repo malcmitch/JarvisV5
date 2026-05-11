@@ -1,9 +1,14 @@
 /**
  * Bambu Lab Cloud MQTT manager — module-level singleton so the connection
  * persists across hot-reloads in Next.js dev and across route invocations.
+ * Token is persisted to disk so it survives server restarts.
  */
 
-const BAMBU_API = 'https://api.bambulab.com';
+import fs from 'fs';
+import path from 'path';
+
+const BAMBU_API  = 'https://api.bambulab.com';
+const TOKEN_PATH = path.join(process.cwd(), '.bambu-token.json');
 
 export interface BambuToken {
   accessToken: string;
@@ -17,6 +22,30 @@ export interface PrinterInfo {
   model?: string;
 }
 
+// ── Disk persistence ──────────────────────────────────────────────────────────
+
+function loadTokenFromDisk(): BambuToken | null {
+  try {
+    if (fs.existsSync(TOKEN_PATH)) {
+      const raw = fs.readFileSync(TOKEN_PATH, 'utf-8');
+      return JSON.parse(raw) as BambuToken;
+    }
+  } catch {}
+  return null;
+}
+
+function saveTokenToDisk(token: BambuToken | null) {
+  try {
+    if (token) {
+      fs.writeFileSync(TOKEN_PATH, JSON.stringify(token, null, 2));
+    } else if (fs.existsSync(TOKEN_PATH)) {
+      fs.unlinkSync(TOKEN_PATH);
+    }
+  } catch (e) {
+    console.error('[Bambu] Failed to save token to disk:', e);
+  }
+}
+
 // ── Global module-level state ─────────────────────────────────────────────────
 
 const g = globalThis as typeof globalThis & {
@@ -25,20 +54,42 @@ const g = globalThis as typeof globalThis & {
   _bambuTelemetry?: Record<string, Record<string, unknown>>;
   _bambuMqttConnected?: boolean;
   _bambuMqttClient?: import('mqtt').MqttClient | null;
+  _bambuConnecting?: boolean;
+  _bambuInitialized?: boolean;
+  _bambuLastErrLog?: number;
 };
 
-g._bambuToken        ??= null;
-g._bambuPrinters     ??= [];
-g._bambuTelemetry    ??= {};
-g._bambuMqttConnected ??= false;
-g._bambuMqttClient   ??= null;
+// On first module load, restore token from disk and auto-connect
+if (!g._bambuInitialized) {
+  g._bambuInitialized   = true;
+  g._bambuPrinters      = [];
+  g._bambuTelemetry     = {};
+  g._bambuMqttConnected = false;
+  g._bambuMqttClient    = null;
+  g._bambuConnecting    = false;
+  g._bambuLastErrLog    = 0;
 
-export const getToken   = (): BambuToken | null     => g._bambuToken ?? null;
-export const getPrinters = (): PrinterInfo[]         => g._bambuPrinters ?? [];
-export const getTelemetry = (): Record<string, Record<string, unknown>> => g._bambuTelemetry ?? {};
-export const isMqttConnected = (): boolean           => g._bambuMqttConnected ?? false;
+  const diskToken = loadTokenFromDisk();
+  if (diskToken && diskToken.accessToken && diskToken.tokenExpiration > Date.now()) {
+    g._bambuToken = diskToken;
+    // Kick off MQTT reconnection in background
+    import('./mqtt-manager').then(({ connectMqtt }) => {
+      connectMqtt(diskToken).catch((e) => console.error('[Bambu] Auto-reconnect failed:', e));
+    });
+  } else {
+    g._bambuToken = null;
+  }
+}
 
-export function setToken(t: BambuToken | null) { g._bambuToken = t; }
+export const getToken      = (): BambuToken | null => g._bambuToken ?? null;
+export const getPrinters   = (): PrinterInfo[]      => g._bambuPrinters ?? [];
+export const getTelemetry  = (): Record<string, Record<string, unknown>> => g._bambuTelemetry ?? {};
+export const isMqttConnected = (): boolean          => g._bambuMqttConnected ?? false;
+
+export function setToken(t: BambuToken | null) {
+  g._bambuToken = t;
+  saveTokenToDisk(t);
+}
 
 export function isTokenValid(): boolean {
   return !!(g._bambuToken?.accessToken && (g._bambuToken.tokenExpiration ?? 0) > Date.now());
@@ -48,6 +99,8 @@ export function isTokenValid(): boolean {
 
 export async function connectMqtt(token: BambuToken): Promise<void> {
   if (g._bambuMqttConnected && g._bambuMqttClient?.connected) return;
+  if (g._bambuConnecting) return;
+  g._bambuConnecting = true;
 
   // Fetch bound printers
   const bindRes = await fetch(`${BAMBU_API}/v1/iot-service/api/user/bind`, {
@@ -64,7 +117,7 @@ export async function connectMqtt(token: BambuToken): Promise<void> {
 
   if (!printers.length) return;
 
-  // Resolve username from preferences
+  // Resolve MQTT username from preferences
   let username = '';
   try {
     const prefRes = await fetch(`${BAMBU_API}/v1/design-user-service/my/preference`, {
@@ -77,7 +130,6 @@ export async function connectMqtt(token: BambuToken): Promise<void> {
   } catch {}
   if (!username) username = `u_${Math.random().toString(16).slice(2)}`;
 
-  // Dynamic import to avoid bundler issues
   const mqtt = await import('mqtt');
   const brokerUrl = 'mqtts://us.mqtt.bambulab.com:8883';
   const client = mqtt.connect(brokerUrl, {
@@ -91,6 +143,7 @@ export async function connectMqtt(token: BambuToken): Promise<void> {
 
   client.on('connect', () => {
     g._bambuMqttConnected = true;
+    g._bambuConnecting    = false;
     printers.forEach(({ deviceId }) => {
       client.subscribe(`device/${deviceId}/report`, () => {
         const seq = Date.now().toString();
@@ -110,8 +163,17 @@ export async function connectMqtt(token: BambuToken): Promise<void> {
     } catch {}
   });
 
-  client.on('error', (err: Error) => console.error('[Bambu MQTT]', err.message));
-  client.on('close', () => { g._bambuMqttConnected = false; });
+  client.on('error', (err: Error) => {
+    const now = Date.now();
+    if ((now - (g._bambuLastErrLog ?? 0)) > 30_000) {
+      console.error('[Bambu MQTT]', err.message);
+      g._bambuLastErrLog = now;
+    }
+  });
+  client.on('close', () => {
+    g._bambuMqttConnected = false;
+    g._bambuConnecting    = false;
+  });
 
   g._bambuMqttClient = client;
 }

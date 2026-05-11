@@ -13,6 +13,7 @@ release/
 .env
 .env.local
 .env.*.local
+.bambu-token.json
 
 # OS
 .DS_Store
