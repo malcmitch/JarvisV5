@@ -32,6 +32,7 @@ npm-debug.log*
 # Config files (may contain API keys)
 jarvis-mcp.config.json
 jarvis-skills.config.json
+jarvis-server-settings.json
 
 # Build artifacts
 .playwright-mcp/
