@@ -1,0 +1,30 @@
+{
+  "type": "client",
+  "name": "fullscreen",
+  "description": "Enter or exit fullscreen mode for the Jarvis interface. Use when the user says 'go fullscreen', 'fullscreen mode', 'make it fullscreen', 'exit fullscreen', 'leave fullscreen', or 'go back to normal'.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 3,
+  "parameters": [
+    {
+      "id": "action",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Use 'enter' when the user wants to go fullscreen. Use 'exit' when they want to leave fullscreen. Use 'toggle' to switch between states.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["enter", "exit", "toggle"],
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

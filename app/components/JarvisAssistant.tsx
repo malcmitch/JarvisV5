@@ -14,6 +14,7 @@ import { SphereNodesVisualizer } from './visualizers/SphereNodesVisualizer';
 import { PhotoWidget, PhotoEntry } from './PhotoWidget';
 import { sfx } from '../lib/sfx';
 import { installErrorInterceptors, emitError } from '../lib/errorBus';
+import { loadServerSettings, saveServerSettings } from '../lib/serverSettings';
 
 const FFT_BARS = 64;
 const DEFAULT_SETTINGS: JarvisSettings = {
@@ -65,6 +66,15 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const elPollRef = useRef<number | null>(null);
+  // When true, an unexpected WebRTC drop will schedule an auto-reconnect.
+  // Set false during intentional disconnect so we don't loop.
+  const autoReconnectRef = useRef(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Timestamp (ms) when the current session became active. Used to block
+  // automatic navigate_to_page calls in the first few seconds after a
+  // session auto-reconnects, which prevents the model from navigating the
+  // user back to "home" as part of its unsolicited greeting.
+  const sessionStartTimeRef = useRef<number>(0);
 
   // Dynamic function state — starts unloaded; gates auto-start.
   const [dynamicState, setDynamicState] = useState<DynamicFunctionState>({
@@ -95,8 +105,10 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   );
 
   // ElevenLabs Conversational AI hook
+  // NOTE: Do NOT pass micMuted here — changing it causes the SDK to reinitialize
+  // the mic, which looks like a restart. Muting is handled imperatively via
+  // elConversation.setMuted() in setMicrophoneMuted() instead.
   const elConversation = useConversation({
-    micMuted,
     clientTools: elClientToolsRef.current,
     onConnect: () => {
       console.log('ElevenLabs connected');
@@ -396,30 +408,54 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     }
   }, [settings.theme, settings.grid]);
 
-  // Load settings from localStorage
+  // Load settings — server first (shared across all LAN clients), then localStorage fallback
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const stored = localStorage.getItem('jarvis_settings');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored) as Partial<JarvisSettings>;
-          const enabledFunctions = Array.from(new Set([
-            ...DEFAULT_SETTINGS.enabledFunctions,
-            ...(parsed.enabledFunctions ?? []),
-          ]));
-          const nextSettings = { ...DEFAULT_SETTINGS, ...parsed, enabledFunctions };
-          setSettings(nextSettings);
-          localStorage.setItem('jarvis_settings', JSON.stringify(nextSettings));
-        } catch (e) {
-          console.error('Failed to parse settings', e);
+      loadServerSettings().then((serverSettings) => {
+        // Pick the "best" source: prefer server if it has credentials, otherwise localStorage
+        const serverRaw   = serverSettings.jarvis_settings;
+        const localRaw    = localStorage.getItem('jarvis_settings');
+
+        const parseKey = (raw: string | null): string => {
+          try { return (JSON.parse(raw ?? '{}') as Partial<JarvisSettings>).apiKey ?? ''; } catch { return ''; }
+        };
+        const serverHasKey = !!parseKey(serverRaw ?? null).trim();
+        const localHasKey  = !!parseKey(localRaw).trim();
+
+        // Choose the source that actually has credentials
+        const raw = (serverHasKey ? serverRaw : null) ?? (localHasKey ? localRaw : null) ?? serverRaw ?? localRaw;
+
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as Partial<JarvisSettings>;
+            const enabledFunctions = Array.from(new Set([
+              ...DEFAULT_SETTINGS.enabledFunctions,
+              ...(parsed.enabledFunctions ?? []),
+            ]));
+            const nextSettings = { ...DEFAULT_SETTINGS, ...parsed, enabledFunctions };
+            setSettings(nextSettings);
+
+            // Back-fill localStorage so offline / Electron still works
+            if (!localRaw) {
+              localStorage.setItem('jarvis_settings', JSON.stringify(nextSettings));
+            }
+
+            // If localStorage has credentials but the server doesn't, push them up now.
+            // This self-heals after a race-condition wipe.
+            if (!serverHasKey && localHasKey) {
+              saveServerSettings({ jarvis_settings: JSON.stringify(nextSettings) });
+            }
+          } catch (e) {
+            console.error('Failed to parse settings', e);
+          }
+        } else {
+          // Fallback to env var if available
+          const envKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+          if (envKey) {
+            setSettings(prev => ({ ...prev, apiKey: envKey }));
+          }
         }
-      } else {
-        // Fallback to env var if available
-        const envKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-        if (envKey) {
-          setSettings(prev => ({ ...prev, apiKey: envKey }));
-        }
-      }
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -442,7 +478,11 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
             ...prev,
             enabledFunctions: [...prev.enabledFunctions, ...newTools],
           };
-          localStorage.setItem('jarvis_settings', JSON.stringify(updated));
+          const serialised = JSON.stringify(updated);
+          localStorage.setItem('jarvis_settings', serialised);
+          // Do NOT write to server here — settings may not have loaded from the
+          // server yet (race condition) and would overwrite the real API key.
+          // The server file is only updated when the user explicitly saves settings.
           return updated;
         });
       }
@@ -628,6 +668,11 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
         return;
       }
 
+      console.log(
+        `%c[Jarvis] startRealtime() called at ${new Date().toLocaleTimeString()} — model: ${currentSettings.realtimeModel ?? 'gpt-realtime-1.5'}`,
+        'background:#0d2137;color:#4fc3f7;font-weight:bold;padding:2px 6px;border-radius:3px'
+      );
+
       disconnect(); // Ensure clean slate
       setStatus('listening');
       setLastError(null);
@@ -648,6 +693,21 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
 
       const pc = new RTCPeerConnection();
       peerConnectionRef.current = pc;
+      autoReconnectRef.current = false; // will be set true once data channel opens
+
+      // When the WebRTC connection drops, just go idle — do NOT auto-reconnect.
+      // Auto-reconnect created a loop: drop → restart → model calls navigate_to_page('home')
+      // → page jumps → user has to deactivate Jarvis again, repeat.
+      // Jarvis reconnects explicitly when: the app loads, settings are saved, or the
+      // user clicks the logo when idle. The user is always in control.
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        console.log(`%c[Jarvis] WebRTC connectionState → "${state}" at ${new Date().toLocaleTimeString()}`, 'color:#ffa726');
+        if (state === 'failed' || state === 'closed') {
+          autoReconnectRef.current = false;
+          setStatus('idle');
+        }
+      };
 
       // Add local audio track
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -670,7 +730,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const model = 'gpt-realtime-1.5';
+      const model = currentSettings.realtimeModel ?? 'gpt-realtime-1.5';
 
       const url = new URL('https://api.openai.com/v1/realtime');
       url.searchParams.set('model', model);
@@ -695,6 +755,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
 
       dc.onopen = () => {
         console.log('WebRTC data channel open');
+        autoReconnectRef.current = true; // session is live — enable auto-reconnect on drop
 
         const allFunctions = dynamicState.loaded ? dynamicState.allFunctions : FUNCTION_REGISTRY;
         const enabledTools = allFunctions
@@ -705,12 +766,15 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
           type: 'session.update',
           session: {
             voice: currentSettings.voice,
-            instructions: currentSettings.initialPrompt,
+            instructions:
+              currentSettings.initialPrompt +
+              '\n\nIMPORTANT RULE: Never call navigate_to_page or any navigation/page-switching function unless the user explicitly tells you to navigate somewhere. Do not navigate as part of a greeting, reconnect, or on your own initiative.',
             ...(enabledTools.length > 0 && { tools: enabledTools }),
           },
         };
 
         dc.send(JSON.stringify(sessionConfig));
+        sessionStartTimeRef.current = Date.now();
         setStatus('active');
 
         // Inject any photos already on the HUD into the fresh session
@@ -750,6 +814,26 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
 
             let parsedArgs: Record<string, unknown> = {};
             try { parsedArgs = JSON.parse(rawArgs || '{}'); } catch { /* empty args */ }
+
+            // Block unsolicited navigation calls in the first 6 seconds after
+            // a session connects. This prevents the model from navigating to
+            // "home" as part of its automatic reconnect greeting, which was
+            // causing the app to jump back to the home page and reset.
+            const msSinceSessionStart = Date.now() - sessionStartTimeRef.current;
+            if (fnName === 'navigate_to_page' && msSinceSessionStart < 6000) {
+              console.warn('[Jarvis] Blocked early navigate_to_page call (auto-reconnect guard). Args:', parsedArgs);
+              dc.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                  type: 'function_call_output',
+                  call_id: id,
+                  output: JSON.stringify({ success: true, navigated_to: parsedArgs.page }),
+                },
+              }));
+              dc.send(JSON.stringify({ type: 'response.create' }));
+              delete pendingCalls[id];
+              return;
+            }
 
             const result = await fn.handler(parsedArgs);
 
@@ -871,6 +955,16 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   }
 
   function disconnect() {
+    console.log(
+      `%c[Jarvis] disconnect() called at ${new Date().toLocaleTimeString()} — stack: ${new Error().stack?.split('\n')[2]?.trim() ?? 'unknown'}`,
+      'background:#2d0a0a;color:#ff6b6b;font-weight:bold;padding:2px 6px;border-radius:3px'
+    );
+    // Mark intentional — prevents auto-reconnect from firing on this close
+    autoReconnectRef.current = false;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     // OpenAI WebRTC cleanup
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
@@ -908,12 +1002,39 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     if (desktopModeRef.current) {
       window.electron?.setDesktopPanelMuted?.(muted);
     }
+
+    if (muted) {
+      // User intentionally silenced Jarvis — disable auto-reconnect so that
+      // OpenAI's idle-session timeout doesn't trigger a reconnect (and page
+      // navigation) while Jarvis is muted.
+      autoReconnectRef.current = false;
+    } else {
+      // User unmuted — if the session died while muted, revive it now.
+      const sessionAlive =
+        peerConnectionRef.current !== null &&
+        (peerConnectionRef.current.connectionState === 'connected' ||
+          peerConnectionRef.current.connectionState === 'connecting');
+      if (!sessionAlive) {
+        setRestartTrigger((t) => t + 1);
+      } else {
+        autoReconnectRef.current = true;
+      }
+    }
   }
 
   function handleLogoClick() {
     if (compact) {
       sfx('click', 0.45);
-      setMicrophoneMuted(!micMutedRef.current);
+      if (status === 'active' || status === 'listening') {
+        console.log(`%c[Jarvis] Logo clicked → DISCONNECTING (status was "${status}")`, 'color:#ef9a9a;font-weight:bold');
+        // Fully end the WebRTC stream — no muting, no lingering session.
+        // OpenAI cannot call any functions or navigate once disconnected.
+        disconnect();
+      } else {
+        console.log(`%c[Jarvis] Logo clicked → RECONNECTING (status was "${status}")`, 'color:#a5d6a7;font-weight:bold');
+        // Jarvis is idle/disconnected — reconnect the stream.
+        setRestartTrigger((t) => t + 1);
+      }
       return;
     }
 
@@ -930,6 +1051,12 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     const shouldStart =
       (mode === 'elevenlabs' && !!settings.elevenLabsAgentId?.trim()) ||
       (mode === 'openai' && !!settings.apiKey);
+
+    console.log(
+      `%c[Jarvis] Auto-start effect fired at ${new Date().toLocaleTimeString()} — restartTrigger=${restartTrigger}, shouldStart=${shouldStart}, mode=${mode}`,
+      'background:#1b2838;color:#66bb6a;font-weight:bold;padding:2px 6px;border-radius:3px'
+    );
+
     const startTimer = shouldStart
       ? window.setTimeout(() => void start(settings), 0)
       : null;
@@ -940,16 +1067,29 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     };
   }, [settings.apiKey, settings.apiMode, restartTrigger, dynamicState.loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
+
   const handleSaveSettings = (newSettings: JarvisSettings) => {
     setSettings(newSettings);
-    localStorage.setItem('jarvis_settings', JSON.stringify(newSettings));
+    const serialised = JSON.stringify(newSettings);
+    localStorage.setItem('jarvis_settings', serialised);
+    // Only write to server if at least one key credential is present, so a
+    // race-triggered blank save can never overwrite a good server config.
+    const hasCredentials =
+      (newSettings.apiMode === 'openai'      && !!newSettings.apiKey?.trim()) ||
+      (newSettings.apiMode === 'elevenlabs'  && !!newSettings.elevenLabsAgentId?.trim());
+    if (hasCredentials) {
+      saveServerSettings({ jarvis_settings: serialised });
+    }
     setIsSettingsOpen(false);
     // Increment trigger so the auto-start effect re-runs with the new settings.
     // This avoids the race where a manual setTimeout races against the effect.
     setRestartTrigger((t) => t + 1);
   };
 
-  const isCompactMuted = compact && micMuted;
+  // In compact mode, show as greyed-out whenever the stream is not active.
+  // Previously this was tied to micMuted, but now compact-click fully disconnects
+  // the stream, so status === 'idle' is the correct indicator.
+  const isCompactMuted = compact && status !== 'active' && status !== 'listening';
   const visualStatus = isCompactMuted ? 'idle' : status;
   const visualAudioLevel = isCompactMuted ? 0 : audioLevel;
   const visualFftData = isCompactMuted ? new Array(FFT_BARS).fill(0) : fftData;

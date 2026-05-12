@@ -1,0 +1,71 @@
+{
+  "type": "client",
+  "name": "control_hud",
+  "description": "Control the HUD widgets displayed on the home screen. Use this when the user asks to open, close, show, hide, or manage widgets. Commands: 'open' adds a widget, 'close' removes a widget, 'clear' removes all widgets, 'reset' restores the default layout. IMPORTANT: The 'map' widget is a small HUD minimap overlay — it is NOT the full map page. For full map/navigation requests use map_command instead.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": false,
+  "response_timeout_secs": 1,
+  "parameters": [
+    {
+      "id": "command",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The HUD action to perform. Use 'open' to add a widget. Use 'close' to remove a specific widget. Use 'clear' to remove all widgets. Use 'reset' to restore the default layout.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["open", "close", "clear", "reset"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "widget",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The widget to open or close. Required for 'open' and 'close' commands. Options: 'clock', 'system' (system stats), 'network' (network graph), 'music', 'map' (HUD minimap overlay), 'suit', 'text' (text note), 'pdf' (document viewer), 'image', 'terminal' (error terminal).",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["clock", "system", "network", "music", "map", "suit", "text", "pdf", "image", "terminal"],
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "text_content",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "When command is 'open' and widget is 'text', the body text to display. Extract the text the user wants shown.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "pdf_source",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "When command is 'open' and widget is 'pdf', the document location: a full https URL, a path under public (e.g. /brochure.pdf), or an absolute file path.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "title",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "When opening the 'text' widget, an optional short header title, e.g. 'REMINDER', 'NOTE'. Ignored for other widget types.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

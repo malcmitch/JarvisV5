@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { getCachedSetting } from '../../../lib/serverSettings';
 
 interface HAEntity {
   entity_id: string;
@@ -9,7 +10,10 @@ interface HAEntity {
 
 function loadHA() {
   if (typeof window === 'undefined') return { url: '', token: '' };
-  return { url: localStorage.getItem('jarvis_ha_url') ?? '', token: localStorage.getItem('jarvis_ha_token') ?? '' };
+  return {
+    url:   getCachedSetting('jarvis_ha_url'),
+    token: getCachedSetting('jarvis_ha_token'),
+  };
 }
 
 export function TVWidget() {

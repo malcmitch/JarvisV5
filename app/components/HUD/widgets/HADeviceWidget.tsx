@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { getCachedSetting } from '../../../lib/serverSettings';
 
 interface HAEntity {
   entity_id: string;
@@ -9,7 +10,10 @@ interface HAEntity {
 
 function loadHA() {
   if (typeof window === 'undefined') return { url: '', token: '' };
-  return { url: localStorage.getItem('jarvis_ha_url') ?? '', token: localStorage.getItem('jarvis_ha_token') ?? '' };
+  return {
+    url:   getCachedSetting('jarvis_ha_url'),
+    token: getCachedSetting('jarvis_ha_token'),
+  };
 }
 
 export function HADeviceWidget({ config }: { config?: Record<string, unknown> }) {
@@ -34,6 +38,18 @@ export function HADeviceWidget({ config }: { config?: Record<string, unknown> })
         filtered = all.filter((e) => entityIds.includes(e.entity_id));
       } else if (domain) {
         filtered = all.filter((e) => e.entity_id.startsWith(domain + '.'));
+        // Alias: "Light 1-4" smart plugs live in the switch domain.
+        // When domain=light yields nothing, also include switch entities
+        // whose friendly name contains "light".
+        if (domain === 'light' && filtered.length === 0) {
+          filtered = all.filter(
+            (e) =>
+              e.entity_id.startsWith('switch.') &&
+              (e.attributes.friendly_name as string ?? '')
+                .toLowerCase()
+                .includes('light'),
+          );
+        }
       } else if (friendlyFilter) {
         filtered = all.filter((e) => (e.attributes.friendly_name as string ?? '').toLowerCase().includes(friendlyFilter.toLowerCase()));
       }
@@ -49,7 +65,7 @@ export function HADeviceWidget({ config }: { config?: Record<string, unknown> })
     const d = entity.entity_id.split('.')[0];
     const isOn = ['on','playing','idle','open','unlocked'].includes(entity.state);
     await fetch('/api/home-assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, token, domain: d, service: isOn ? 'turn_off' : 'turn_on', entity_id: entity.entity_id }) });
+      body: JSON.stringify({ url, token, domain: d, service: isOn ? 'turn_off' : 'turn_on', serviceData: { entity_id: entity.entity_id } }) });
     setEntities((prev) => prev.map((e) => e.entity_id === entity.entity_id ? { ...e, state: isOn ? 'off' : 'on' } : e));
     setTimeout(fetchEntities, 800);
   };

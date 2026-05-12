@@ -1,0 +1,90 @@
+{
+  "type": "client",
+  "name": "home_assistant_command",
+  "description": "Control smart home devices via Home Assistant. Use for lights, switches, fans, climate, locks, TVs, and media players. IMPORTANT: For 'put on Netflix', 'switch to HDMI 1', 'change the input' — always use select_source. LIGHTS RULE: The lights in this home are smart plugs (switch domain) named 'Light 1', 'Light 2', 'Light 3', 'Light 4'. When user says 'lights' use domain='light' — the system auto-finds the switch entities.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 10,
+  "parameters": [
+    {
+      "id": "command",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The smart home command. 'turn_on'/'turn_off' to toggle devices. 'toggle' to flip state. 'set_brightness' to dim a light. 'set_temperature' to set a thermostat. 'select_source' for TV input/app changes like 'put on Netflix'. 'list_devices' to get all entities and states.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["turn_on", "turn_off", "toggle", "set_brightness", "set_temperature", "select_source", "list_devices"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "entity_id",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Home Assistant entity ID if known, e.g. 'light.living_room', 'media_player.lg_tv'. Optional — system resolves by friendly_name if omitted.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "friendly_name",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Human-readable device name to find, e.g. 'living room light', 'bedroom fan'. Use when you don't know the entity_id.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "brightness",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Brightness percentage 0–100 for 'set_brightness', e.g. 'dim to 30%' → 30.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "temperature",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Target temperature for 'set_temperature', e.g. 'set thermostat to 72' → 72.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "source",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Required for 'select_source'. The TV input or app name: 'Netflix', 'Hulu', 'HDMI 1', 'HDMI 2', 'YouTube', etc.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "domain",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "HA domain to scope a broad command: 'light', 'switch', 'climate', 'fan', 'media_player', 'lock', 'sensor'. Use 'light' when user talks about lights — the system will also find switch entities named 'Light 1–4' automatically.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

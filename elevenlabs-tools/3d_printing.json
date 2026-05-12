@@ -1,0 +1,29 @@
+{
+  "type": "client",
+  "name": "3d_printing",
+  "description": "Start a 3D print job. Use this when the user asks to print something. Searches for a model online, opens Bambu Studio, and sends the job to an available printer automatically.",
+  "disable_interruptions": true,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 120,
+  "parameters": [
+    {
+      "id": "description",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "What the user wants to print. Extract the object or item they described, e.g. 'a Batman logo', 'command strip hooks', 'a phone stand'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

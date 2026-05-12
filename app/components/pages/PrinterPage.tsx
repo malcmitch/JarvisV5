@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { saveServerSettings, getCachedSetting } from '../../lib/serverSettings';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -89,8 +90,9 @@ function BambuWizard({ onComplete }: { onComplete: () => void }) {
       const data = await res.json() as { status?: string; error?: string };
       if (data.status === 'code_sent') {
         setStep('code');
-      } else if (data.status === 'authenticated') {
+      } else       if (data.status === 'authenticated') {
         localStorage.setItem('bambu_email', email.trim());
+        saveServerSettings({ bambu_email: email.trim() });
         setStep('connecting');
         setTimeout(onComplete, 1500);
       } else {
@@ -113,6 +115,7 @@ function BambuWizard({ onComplete }: { onComplete: () => void }) {
       if (data.success) {
         localStorage.setItem('bambu_email', email.trim());
         localStorage.setItem('bambu_token_exp', String(data.tokenExpiration ?? 0));
+        saveServerSettings({ bambu_email: email.trim(), bambu_token_exp: String(data.tokenExpiration ?? 0) });
         setStep('connecting');
         setTimeout(onComplete, 1500);
       } else {

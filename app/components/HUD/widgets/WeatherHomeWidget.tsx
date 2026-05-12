@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { getCachedSetting } from '../../../lib/serverSettings';
 
 interface WeatherData {
   temp: number; condition: string; icon: string;
@@ -11,7 +12,7 @@ export function WeatherHomeWidget() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const stored = typeof window !== 'undefined' ? localStorage.getItem('jarvis_weather_location') : null;
+    const stored = getCachedSetting('jarvis_weather_location') || (typeof window !== 'undefined' ? localStorage.getItem('jarvis_weather_location') : null);
 
     const fetchByCoords = async (lat: number, lon: number) => {
       try {

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { saveServerSettings } from '../../lib/serverSettings';
 
 interface Props {
   onComplete: (url: string, token: string) => void;
@@ -51,9 +52,12 @@ export function HomeAssistantWizard({ onComplete, onSkip }: Props) {
   };
 
   const handleComplete = () => {
-    localStorage.setItem('jarvis_ha_url',   url.trim().replace(/\/$/, ''));
-    localStorage.setItem('jarvis_ha_token', token.trim());
-    onComplete(url.trim().replace(/\/$/, ''), token.trim());
+    const haUrl   = url.trim().replace(/\/$/, '');
+    const haToken = token.trim();
+    localStorage.setItem('jarvis_ha_url',   haUrl);
+    localStorage.setItem('jarvis_ha_token', haToken);
+    saveServerSettings({ jarvis_ha_url: haUrl, jarvis_ha_token: haToken });
+    onComplete(haUrl, haToken);
   };
 
   return (

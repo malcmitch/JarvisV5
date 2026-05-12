@@ -1516,10 +1516,11 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       description:
         'Control smart home devices and read sensors via Home Assistant. ' +
         'IMPORTANT TV/MEDIA RULES: When the user says "put on Netflix", "switch to HDMI 1", "play Hulu", "change the input", or anything about what is playing on the TV — ALWAYS use select_source with the source name. Do NOT ask for clarification about which TV if only one TV/media_player exists — just use it automatically. ' +
+        'IMPORTANT LIGHTS RULE: The lights in this home are smart plugs in the switch domain with friendly names "Light 1", "Light 2", "Light 3", "Light 4". When the user says "turn on the lights", "turn off all lights", "dim the lights", etc. — use domain="light" and the system will automatically find the correct switch entities. Do NOT say you cannot find the lights. ' +
         'For lights, switches, fans: use turn_on/turn_off/toggle. ' +
         'For brightness: set_brightness. For temperature: set_temperature. ' +
         'For listing devices or reading sensors: list_devices. ' +
-        'Examples: "put on Netflix" → select_source, source="Netflix" (no entity_id needed, auto-resolves to the TV). "switch to HDMI 1" → select_source, source="HDMI 1". "turn off the lights" → turn_off, domain=light.',
+        'Examples: "put on Netflix" → select_source, source="Netflix". "turn off the lights" → turn_off, domain=light. "turn on all lights" → turn_on, domain=light.',
       parameters: {
         type: 'object',
         properties: {
@@ -1608,6 +1609,58 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
 
       // For control commands, resolve entity_id
       let resolvedEntityId = entityId;
+
+      // ── Bulk domain operation ────────────────────────────────────────────────
+      // When a domain is given but no specific entity/name, apply the command to
+      // ALL entities in that domain (e.g. "turn on all lights" → every light.*).
+      // Also handles "lights" as an alias for switches named "light" since the
+      // user's lights are smart plugs (switch domain, friendly names Light 1–4).
+      if (!resolvedEntityId && domain && command !== 'select_source' && command !== 'list_devices') {
+        try {
+          const res = await fetch(`/api/home-assistant?url=${encodeURIComponent(haUrl)}&token=${encodeURIComponent(haToken)}&path=/api/states`);
+          if (res.ok) {
+            const states = await res.json() as Array<{ entity_id: string; state: string; attributes: { friendly_name?: string } }>;
+            const domainLower = domain.toLowerCase();
+
+            // When asked about "light" domain but none exist, also search for
+            // switch entities whose friendly name contains "light" — covers smart
+            // plugs that act as lights (e.g. "Light 1", "Light 2", etc.)
+            let targets = states.filter((e) => e.entity_id.startsWith(domainLower + '.'));
+            if (targets.length === 0 && domainLower === 'light') {
+              targets = states.filter((e) =>
+                e.entity_id.startsWith('switch.') &&
+                (e.attributes.friendly_name ?? e.entity_id).toLowerCase().includes('light')
+              );
+            }
+
+            // If friendly_name is also given, narrow to matching entities
+            if (friendlyName) {
+              const q = friendlyName.toLowerCase();
+              const narrow = targets.filter((e) =>
+                (e.attributes.friendly_name ?? '').toLowerCase().includes(q) ||
+                e.entity_id.toLowerCase().includes(q.replace(/ /g, '_'))
+              );
+              if (narrow.length > 0) targets = narrow;
+            }
+
+            if (targets.length > 0) {
+              const svc = command === 'set_brightness' ? 'turn_on' : command;
+              const results: string[] = [];
+              for (const t of targets) {
+                const svcData: Record<string, unknown> = { entity_id: t.entity_id };
+                if (command === 'set_brightness') svcData.brightness = Math.round(((brightness ?? 100) / 100) * 255);
+                const r = await fetch(`/api/home-assistant?url=${encodeURIComponent(haUrl)}&token=${encodeURIComponent(haToken)}&path=/api/services/${t.entity_id.split('.')[0]}/${svc}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(svcData),
+                });
+                results.push(`${t.attributes.friendly_name ?? t.entity_id}: ${r.ok ? 'done' : 'failed'}`);
+              }
+              return { success: true, message: `Applied "${command}" to ${targets.length} device(s): ${results.join(', ')}` };
+            }
+          }
+        } catch { /* fall through to single-entity path */ }
+      }
 
       // Auto-resolve TV for select_source when no entity specified
       if (command === 'select_source' && !resolvedEntityId && !friendlyName) {
@@ -1831,9 +1884,10 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         '"tv" = TV remote control panel (power, source selection, volume). ' +
         '"printer" = 3D printer live status card with progress and controls — use printer_name to target a specific printer. ' +
         '"weather-home" = current weather conditions. ' +
-        '"ha-device" = Home Assistant device controls — use entity_ids array or domain to specify which devices. ' +
+        '"ha-device" = Home Assistant device card — shows multiple devices, use entity_ids or domain. ' +
+        '"ha-toggle" = a single bare glowing power button for ONE specific device — use name_filter to target it (e.g. name_filter="Light 1"). This is the best choice when the user asks to add a button, switch, or toggle for a specific device. ' +
         'Examples: "add the TV to the dashboard" → widget_type=tv, action=add. ' +
-        '"show the X1 Carbon on the home page" → widget_type=printer, printer_name="X1 Carbon", action=add. ' +
+        '"add a button for Light 1" → widget_type=ha-toggle, name_filter="Light 1", action=add. ' +
         '"add my lights to the dashboard" → widget_type=ha-device, domain=light, action=add. ' +
         '"remove the weather widget" → widget_type=weather-home, action=remove.',
       parameters: {
@@ -1846,8 +1900,8 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           },
           widget_type: {
             type: 'string',
-            enum: ['tv', 'printer', 'weather-home', 'ha-device'],
-            description: 'Which widget to add or remove.',
+            enum: ['tv', 'printer', 'weather-home', 'ha-device', 'ha-toggle'],
+            description: 'Which widget to add or remove. Use "ha-toggle" for a single glowing power button for one specific device.',
           },
           title: {
             type: 'string',
@@ -1859,7 +1913,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           },
           domain: {
             type: 'string',
-            description: 'For widget_type=ha-device: HA domain to filter devices (e.g. "light", "switch", "climate").',
+            description: 'For widget_type=ha-device: HA domain to filter devices (e.g. "light", "switch", "climate"). Use "light" for lights — the system automatically includes smart plugs named "Light 1-4" even though they are in the switch domain.',
           },
           entity_ids: {
             type: 'array',
@@ -1868,7 +1922,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           },
           name_filter: {
             type: 'string',
-            description: 'For widget_type=ha-device: fuzzy name filter to show devices whose friendly name matches (e.g. "bedroom").',
+            description: 'For widget_type=ha-device: fuzzy name filter — shows devices whose friendly name contains this string (e.g. "light 1", "bedroom"). Use this when adding a specific named device like "Light 1".',
           },
         },
         required: ['action', 'widget_type'],
@@ -1901,7 +1955,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
 
         const widgetNames: Record<string, string> = {
           'tv': 'TV Control', 'printer': 'Printer Status',
-          'weather-home': 'Weather', 'ha-device': 'Device Controls',
+          'weather-home': 'Weather', 'ha-device': 'Device Controls', 'ha-toggle': 'Power Button',
         };
         const label = title ?? widgetNames[widgetType] ?? widgetType;
         return {
@@ -1921,6 +1975,47 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       }
 
       return { success: false, message: 'Unknown action' };
+    },
+  },
+  {
+    name: 'fullscreen',
+    label: 'Fullscreen',
+    description: 'Toggle fullscreen mode on or off for the Jarvis app',
+    tool: {
+      type: 'function',
+      name: 'fullscreen',
+      description:
+        'Enter or exit fullscreen mode for the Jarvis interface. ' +
+        'Use this when the user says "go fullscreen", "fullscreen mode", "make it fullscreen", "exit fullscreen", "leave fullscreen", or "go back to normal".',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['enter', 'exit', 'toggle'],
+            description: 'Use "enter" to go fullscreen, "exit" to leave fullscreen, "toggle" to switch between states.',
+          },
+        },
+        required: ['action'],
+      },
+    },
+    handler: async (args) => {
+      const action = args.action as string;
+
+      const isFullscreen = () => !!document.fullscreenElement;
+
+      try {
+        if (action === 'enter' || (action === 'toggle' && !isFullscreen())) {
+          await document.documentElement.requestFullscreen();
+          return { success: true, state: 'fullscreen' };
+        } else if (action === 'exit' || (action === 'toggle' && isFullscreen())) {
+          await document.exitFullscreen();
+          return { success: true, state: 'windowed' };
+        }
+        return { error: 'Invalid action.' };
+      } catch (err) {
+        return { error: String(err) };
+      }
     },
   },
 ];

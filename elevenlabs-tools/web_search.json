@@ -1,0 +1,29 @@
+{
+  "type": "client",
+  "name": "web_search",
+  "description": "Search the web for current information, news, facts, or anything the user wants to look up. Returns results with title, URL, and snippet. Call this when the user asks about something recent or wants to look something up.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 10,
+  "parameters": [
+    {
+      "id": "query",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The search query to look up on the web. Extract the key topic or question from what the user said, e.g. 'latest iPhone 17 release date', 'weather in Tokyo this week', 'who won the Super Bowl 2026'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

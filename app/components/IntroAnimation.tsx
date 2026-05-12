@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { sfx, sfxSlide } from '../lib/sfx';
+import { useIsMobile } from '../lib/useIsMobile';
 
 type Phase = 'black' | 'scan' | 'assemble' | 'widgets';
 
@@ -22,6 +23,7 @@ export function IntroAnimation({
   onComplete: () => void;
   onFadeStart?: () => void;
 }) {
+  const isMobile = useIsMobile();
   const [phase, setPhase]           = useState<Phase>('black');
   const [visible, setVisible]       = useState(true);
   const [screenW, setScreenW]       = useState(1440);
@@ -62,25 +64,35 @@ export function IntroAnimation({
   }, []);
 
   useEffect(() => {
-    const WIDGET_START = 4200;
-    const STAGGER_MS   = 220;
-    const NUM_WIDGETS  = 5;
-
     const timers: ReturnType<typeof setTimeout>[] = [
-      setTimeout(() => { setPhase('scan');     sfx('select', 0.5); sfx('loading', 0.7); },  400),
+      setTimeout(() => { setPhase('scan');     sfx('select', 0.5); sfx('loading', 0.7); }, 400),
       setTimeout(() => { setPhase('assemble'); sfx('intro2', 0.8); }, 2400),
-      setTimeout(() => { setPhase('widgets'); },                          WIDGET_START),
-      setTimeout(() => { setVisible(false); onFadeStart?.(); },           6900),
-      setTimeout(onComplete,                                              6950),
     ];
 
-    for (let i = 0; i < NUM_WIDGETS; i++) {
-      timers.push(setTimeout(() => sfxSlide(0.55), WIDGET_START + i * STAGGER_MS));
+    if (isMobile) {
+      // Mobile: scan + assemble only, then fade out ~1s after assemble settles
+      timers.push(
+        setTimeout(() => { setVisible(false); onFadeStart?.(); }, 3800),
+        setTimeout(onComplete,                                     3850),
+      );
+    } else {
+      // Desktop: full sequence with widget slide-in
+      const WIDGET_START = 4200;
+      const STAGGER_MS   = 220;
+      const NUM_WIDGETS  = 5;
+      timers.push(
+        setTimeout(() => { setPhase('widgets'); },              WIDGET_START),
+        setTimeout(() => { setVisible(false); onFadeStart?.(); }, 6900),
+        setTimeout(onComplete,                                    6950),
+      );
+      for (let i = 0; i < NUM_WIDGETS; i++) {
+        timers.push(setTimeout(() => sfxSlide(0.55), WIDGET_START + i * STAGGER_MS));
+      }
     }
 
     return () => timers.forEach(clearTimeout);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isMobile]);
 
   const cx = screenW / 2;
   const cy = screenH / 2;

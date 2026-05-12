@@ -1,0 +1,29 @@
+{
+  "type": "client",
+  "name": "computer_use",
+  "description": "Control the user's computer to complete a task. Use this when the user asks you to open an app, click something, type something, or perform any action on their screen that cannot be done via shell command.",
+  "disable_interruptions": true,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 60,
+  "parameters": [
+    {
+      "id": "task",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "A clear, detailed description of what to do on the computer. Extract the exact action the user wants performed, e.g. 'Open Discord', 'Click the send button in the email', 'Type hello in the search bar'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

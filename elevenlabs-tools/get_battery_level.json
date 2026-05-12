@@ -1,0 +1,18 @@
+{
+  "type": "client",
+  "name": "get_battery_level",
+  "description": "Get the user's current device battery level and charging status. Call this when the user asks about their battery, how much charge they have, or if their device is charging.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 3,
+  "parameters": [],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

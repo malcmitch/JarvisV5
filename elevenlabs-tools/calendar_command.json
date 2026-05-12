@@ -1,0 +1,60 @@
+{
+  "type": "client",
+  "name": "calendar_command",
+  "description": "Open the Jarvis Calendar and manage tasks or answer schedule questions. Use for ANY calendar request: viewing upcoming events, adding tasks, marking things done, deleting events, or checking availability.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 10,
+  "parameters": [
+    {
+      "id": "command",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The calendar operation. Use 'add_task' to add an event/task. 'complete_task' when something is done. 'delete_event' to remove/cancel an event. 'list_tasks' for a specific day's schedule. 'get_upcoming' for this week's schedule or availability questions. 'clear_tasks' to remove all tasks from a day. 'go_to_date' to navigate the calendar view.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["add_task", "complete_task", "delete_event", "list_tasks", "clear_tasks", "go_to_date", "get_upcoming"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "date",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "ISO date string YYYY-MM-DD. Extract from what the user said, e.g. 'tomorrow' → next day, 'Friday' → upcoming Friday. Omit for today.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "text",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Task or event text. For 'add_task': the full description. For 'complete_task' or 'delete_event': the partial name to match.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "time",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Optional time label for a task, e.g. '3:00 PM', '9:30 AM'. Extract from the user's request if a time was mentioned.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

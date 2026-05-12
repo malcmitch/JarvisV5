@@ -1,0 +1,39 @@
+{
+  "type": "client",
+  "name": "open_pdf",
+  "description": "Open a PDF in the on-screen HUD viewer. Use when the user wants to view, show, or display a PDF document.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": false,
+  "response_timeout_secs": 1,
+  "parameters": [
+    {
+      "id": "source",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The PDF location: a full https URL, a path under public (e.g. '/manual.pdf'), or an absolute file path on the user's computer (e.g. '/Users/me/document.pdf').",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "title",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Optional short title for the widget header, e.g. 'USER MANUAL'. Omit if not specified by the user.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

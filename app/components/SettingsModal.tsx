@@ -19,9 +19,12 @@ export type JarvisVisualizer = 'frequency-ring' | 'arc-reactor' | 'sphere-nodes'
 export type JarvisLogo = 'logo' | 'logo2';
 export type JarvisPosition = 'center' | 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
 
+export type RealtimeModel = 'gpt-realtime-2' | 'gpt-realtime-1.5' | 'gpt-realtime-mini';
+
 export interface JarvisSettings {
   apiMode: 'openai' | 'elevenlabs';
   apiKey: string;
+  realtimeModel?: RealtimeModel;
   elevenLabsAgentId?: string;
   elevenLabsFirstMessage?: string;
   voice: 'alloy' | 'echo' | 'shimmer';
@@ -201,6 +204,35 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                     placeholder="sk-..."
                     className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
                   />
+                </div>
+              )}
+
+              {(settings.apiMode ?? 'openai') === 'openai' && (
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Realtime Model</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { id: 'gpt-realtime-2',    label: 'Realtime 2',    desc: 'Reasoning' },
+                      { id: 'gpt-realtime-1.5',  label: 'Realtime 1.5',  desc: 'Best voice' },
+                      { id: 'gpt-realtime-mini', label: 'Realtime Mini', desc: 'Cost-efficient' },
+                    ] as { id: RealtimeModel; label: string; desc: string }[]).map((m) => {
+                      const active = (settings.realtimeModel ?? 'gpt-realtime-1.5') === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => { sfx('select', 0.5); setSettings({ ...settings, realtimeModel: m.id }); }}
+                          className={`flex flex-col items-center px-2 py-2 border rounded text-xs transition-all ${
+                            active
+                              ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+                              : 'bg-transparent border-cyan-500/20 text-cyan-600 hover:border-cyan-500/50 hover:text-cyan-400'
+                          }`}
+                        >
+                          <span className="font-bold uppercase tracking-wide">{m.label}</span>
+                          <span className="text-[10px] opacity-70 mt-0.5">{m.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

@@ -1,0 +1,40 @@
+{
+  "type": "client",
+  "name": "printer_command",
+  "description": "Query and control Bambu Lab 3D printers. Use 'status' to check what's printing. Use 'pause', 'resume', or 'stop' to control an active print job.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 10,
+  "parameters": [
+    {
+      "id": "command",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The printer command. Use 'status' to check printer states and progress. 'pause' to pause a print. 'resume' to continue a paused print. 'stop' to cancel a print job.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["status", "pause", "resume", "stop"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "printer_name",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Optional name of the specific printer to target, e.g. 'X1 Carbon', 'A1 Mini'. If only one printer is active it is used automatically.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

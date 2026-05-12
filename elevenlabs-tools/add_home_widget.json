@@ -1,0 +1,81 @@
+{
+  "type": "client",
+  "name": "add_home_widget",
+  "description": "Add or remove a live widget on the Jarvis home screen dashboard. Widget types: 'tv' = TV remote, 'printer' = 3D printer status, 'weather-home' = current weather, 'ha-device' = Home Assistant device controls.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": false,
+  "response_timeout_secs": 1,
+  "parameters": [
+    {
+      "id": "action",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Use 'add' to show a widget on the home screen. Use 'remove' to close/hide it.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["add", "remove"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "widget_type",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Which widget. 'tv' = TV remote control panel. 'printer' = 3D printer live status. 'weather-home' = current weather. 'ha-device' = Home Assistant device controls.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["tv", "printer", "weather-home", "ha-device"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "title",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Optional custom title for the widget header, e.g. 'Living Room TV', 'X1 Carbon'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "printer_name",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "For widget_type='printer': the printer name to show, e.g. 'X1 Carbon'. Omit to show all printers.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "domain",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "For widget_type='ha-device': HA domain to filter devices, e.g. 'light', 'switch', 'climate'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "name_filter",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "For widget_type='ha-device': fuzzy name filter for devices, e.g. 'bedroom', 'kitchen'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

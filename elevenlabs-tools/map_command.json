@@ -1,0 +1,110 @@
+{
+  "type": "client",
+  "name": "map_command",
+  "description": "Open the Jarvis Map and interact with any location. ALWAYS call this for ANY map or location request — never navigate_to_page. Use for: 'navigate to X', 'show me X on the map', 'take me to X', 'fly to X', 'route from A to B', 'find coffee nearby', 'where am I'.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": false,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "command",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The map action. Use 'fly_to' for any named location. 'fly_to_coordinates' for exact lat/lng. 'add_marker' to pin a point. 'show_user_location' when user asks where they are. 'draw_route' for directions. 'clear_markers' to remove all pins. 'search_nearby' to find places.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["fly_to", "fly_to_coordinates", "add_marker", "show_user_location", "draw_route", "clear_markers", "search_nearby"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "location",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "City, address, or place name. Required for 'fly_to' and 'search_nearby', e.g. 'Tokyo', 'Eiffel Tower', '1600 Pennsylvania Ave'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "lat",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Latitude coordinate. Only for 'fly_to_coordinates' or 'add_marker' when you have exact coordinates.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "lng",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Longitude coordinate. Only for 'fly_to_coordinates' or 'add_marker' when you have exact coordinates.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "zoom",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Map zoom level 1–20. Default is 13. Higher = more detail.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "label",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Marker label text for 'add_marker'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "start",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Route start location name for 'draw_route'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "end",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Route destination name for 'draw_route'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "query",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "What to search for nearby with 'search_nearby', e.g. 'coffee', 'gas station', 'hospital'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

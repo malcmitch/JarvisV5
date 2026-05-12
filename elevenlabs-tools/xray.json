@@ -1,0 +1,18 @@
+{
+  "type": "client",
+  "name": "xray",
+  "description": "Capture the user's camera and generate an X-ray style image showing what's inside the object they're pointing at. Call this when the user asks for an X-ray scan, wants to see through something, or asks what's inside an object.",
+  "disable_interruptions": true,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 20,
+  "parameters": [],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

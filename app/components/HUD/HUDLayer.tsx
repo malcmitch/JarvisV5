@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useIsMobile } from '../../lib/useIsMobile';
 import { sfx } from '../../lib/sfx';
 import { HUDModule } from './HUDModule';
 import { SystemStatusWidget } from './widgets/SystemStatusWidget';
@@ -18,8 +19,9 @@ import { TVWidget } from './widgets/TVWidget';
 import { PrinterWidget } from './widgets/PrinterWidget';
 import { WeatherHomeWidget } from './widgets/WeatherHomeWidget';
 import { HADeviceWidget } from './widgets/HADeviceWidget';
+import { getCachedSetting } from '../../lib/serverSettings';
 
-type WidgetType = 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image' | 'terminal' | 'tv' | 'printer' | 'weather-home' | 'ha-device';
+type WidgetType = 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image' | 'terminal' | 'tv' | 'printer' | 'weather-home' | 'ha-device' | 'ha-toggle';
 
 interface ModuleData {
   id: string;
@@ -60,7 +62,41 @@ const WIDGET_META: Record<WidgetType, { title: string; width: number; height: nu
   printer:      { title: '3D PRINTER',      width: 300, height: 340 },
   'weather-home': { title: 'WEATHER',       width: 280, height: 140 },
   'ha-device':  { title: 'DEVICES',         width: 280, height: 260 },
+  'ha-toggle':  { title: 'TOGGLE',          width: 80,  height: 80  },
 };
+
+/** Scan the screen in a grid and return the first (x,y) where a rect of
+ *  size (newW × newH) doesn't overlap any existing module (with padding). */
+function findOpenSpot(
+  newW: number,
+  newH: number,
+  existing: Array<{ x: number; y: number; width: number; height: number }>,
+): { x: number; y: number } {
+  const PAD = 24;
+  const vw = typeof window !== 'undefined' ? window.innerWidth  : 1280;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const STEP = 40;
+  const TOP_MARGIN = 72;  // avoid nav bar
+  const LEFT_MARGIN = 60;
+
+  for (let y = TOP_MARGIN; y + newH + PAD < vh; y += STEP) {
+    for (let x = LEFT_MARGIN; x + newW + PAD < vw; x += STEP) {
+      const overlaps = existing.some(
+        m =>
+          x < m.x + m.width  + PAD &&
+          x + newW + PAD > m.x &&
+          y < m.y + m.height + PAD &&
+          y + newH + PAD > m.y,
+      );
+      if (!overlaps) return { x, y };
+    }
+  }
+  // Last-resort centre
+  return {
+    x: Math.max(LEFT_MARGIN, Math.round((vw - newW) / 2)),
+    y: Math.max(TOP_MARGIN,  Math.round((vh - newH) / 2)),
+  };
+}
 
 function buildDefaultModules(w: number): ModuleData[] {
   return [
@@ -73,10 +109,13 @@ function buildDefaultModules(w: number): ModuleData[] {
 }
 
 export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
+  const isMobile = useIsMobile();
   const [modules, setModules] = useState<ModuleData[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
+    // On mobile, start with no default widgets — keeps the UI clean
+    if (isMobile) return;
     setModules(buildDefaultModules(window.innerWidth));
 
     const handleResize = () => {
@@ -139,7 +178,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
       }
 
       if (command === 'reset') {
-        setModules(buildDefaultModules(window.innerWidth));
+        if (!isMobile) setModules(buildDefaultModules(window.innerWidth));
         setExpandedId(null);
         return;
       }
@@ -153,11 +192,10 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
         const newModuleId =
           type === 'image' && module_id?.trim() ? module_id.trim() : String(Date.now());
         setModules(prev => {
-          const multiInstance = ['text', 'pdf', 'image', 'printer', 'ha-device'].includes(type);
+          const multiInstance = ['text', 'pdf', 'image', 'printer', 'ha-device', 'ha-toggle'].includes(type);
           if (!multiInstance && prev.some(m => m.type === type)) return prev;
           const meta = WIDGET_META[type];
-          const stagger =
-            (prev.filter(m => m.type === 'text' || m.type === 'pdf' || m.type === 'image' || m.type === 'printer' || m.type === 'ha-device').length % 6) * 28;
+          const { x: newX, y: newY } = findOpenSpot(meta.width, meta.height, prev);
           const moduleTitle = title?.trim()
             ? title.trim().toUpperCase()
             : meta.title;
@@ -187,8 +225,8 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
                     imageError: undefined,
                   }
                 : {}),
-              x: 100 + stagger,
-              y: 100 + stagger,
+              x: newX,
+              y: newY,
             },
           ];
         });
@@ -243,7 +281,12 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
         <MusicFloater key={module.id} initialX={module.x} initialY={module.y} onClose={() => removeModule(module.id)} />
       ))}
 
-      {modules.filter(m => m.type !== 'music').map(module => (
+      {/* HA power button floaters — bare draggable glowing icons */}
+      {modules.filter(m => m.type === 'ha-toggle').map(module => (
+        <HAPowerButtonFloater key={module.id} initialX={module.x} initialY={module.y} config={module.widgetConfig} onClose={() => removeModule(module.id)} />
+      ))}
+
+      {modules.filter(m => m.type !== 'music' && m.type !== 'ha-toggle').map(module => (
         <HUDModule
           key={module.id}
           id={module.id}
@@ -286,6 +329,143 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
           {module.type === 'ha-device' && <HADeviceWidget config={module.widgetConfig} />}
         </HUDModule>
       ))}
+    </div>
+  );
+}
+
+// ── Bare draggable HA power-button floater ──────────────────────────────────
+function HAPowerButtonFloater({
+  initialX, initialY, config, onClose,
+}: { initialX: number; initialY: number; config?: Record<string, unknown>; onClose: () => void }) {
+  const [isOn, setIsOn]     = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [entity, setEntity]  = useState<{ id: string; name: string } | null>(null);
+  const constraintsRef = useRef<HTMLDivElement>(null);
+
+  const nameFilter  = config?.name       as string | undefined;
+  const entityIds   = config?.entity_ids as string[] | undefined;
+  const domain      = config?.domain     as string | undefined;
+
+  const getCreds = () => {
+    return { url: getCachedSetting('jarvis_ha_url'), token: getCachedSetting('jarvis_ha_token') };
+  };
+
+  useEffect(() => {
+    const { url, token } = getCreds();
+    if (!url || !token) { setLoading(false); return; }
+    fetch(`/api/home-assistant?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token)}&path=/api/states`)
+      .then(r => r.json())
+      .then((all: Array<{ entity_id: string; state: string; attributes: Record<string, unknown> }>) => {
+        let found = null;
+        if (entityIds?.length) {
+          found = all.find(e => entityIds.includes(e.entity_id)) ?? null;
+        } else if (nameFilter) {
+          found = all.find(e =>
+            (e.attributes.friendly_name as string ?? '').toLowerCase().includes(nameFilter.toLowerCase())
+          ) ?? null;
+          // Fallback: search switch.* entities if domain=light found nothing
+          if (!found && domain === 'light') {
+            found = all.find(e =>
+              e.entity_id.startsWith('switch.') &&
+              (e.attributes.friendly_name as string ?? '').toLowerCase().includes('light')
+            ) ?? null;
+          }
+        } else if (domain) {
+          const direct = all.find(e => e.entity_id.startsWith(domain + '.')) ?? null;
+          found = direct;
+          if (!found && domain === 'light') {
+            found = all.find(e =>
+              e.entity_id.startsWith('switch.') &&
+              (e.attributes.friendly_name as string ?? '').toLowerCase().includes('light')
+            ) ?? null;
+          }
+        }
+        if (found) {
+          setEntity({ id: found.entity_id, name: (found.attributes.friendly_name as string) ?? found.entity_id });
+          setIsOn(['on','playing','open','unlocked'].includes(found.state));
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [nameFilter, domain, entityIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggle = async () => {
+    if (!entity) return;
+    const { url, token } = getCreds();
+    const d = entity.id.split('.')[0];
+    const next = !isOn;
+    setIsOn(next);
+    await fetch('/api/home-assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, token, domain: d, service: next ? 'turn_on' : 'turn_off', serviceData: { entity_id: entity.id } }),
+    });
+  };
+
+  return (
+    <div ref={constraintsRef} className="fixed inset-0 pointer-events-none z-20">
+      <motion.div
+        drag dragMomentum={false}
+        initial={{ x: initialX, y: initialY, opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.7 }}
+        transition={{ duration: 0.2 }}
+        className="absolute pointer-events-auto group flex flex-col items-center gap-1.5"
+        style={{ top: 0, left: 0, cursor: 'grab' }}
+      >
+        {/* Close on hover */}
+        <button
+          onClick={onClose}
+          className="absolute -top-2 -right-2 z-10 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ background: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.2)' }}
+        >
+          <svg viewBox="0 0 10 10" width="6" height="6" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="1.8" strokeLinecap="round">
+            <path d="M2 2l6 6M8 2l-6 6"/>
+          </svg>
+        </button>
+
+        {/* Power button */}
+        <button
+          onClick={toggle}
+          disabled={loading || !entity}
+          className="relative flex items-center justify-center rounded-full transition-all duration-300 active:scale-95"
+          style={{
+            width: 56, height: 56,
+            background: isOn ? 'rgba(34,211,238,0.12)' : 'rgba(255,255,255,0.04)',
+            border: `2px solid ${isOn ? 'rgba(34,211,238,0.8)' : 'rgba(255,255,255,0.2)'}`,
+            boxShadow: isOn ? '0 0 20px rgba(34,211,238,0.5), 0 0 40px rgba(34,211,238,0.2), inset 0 0 12px rgba(34,211,238,0.08)' : 'none',
+          }}
+        >
+          {loading ? (
+            <div className="w-4 h-4 rounded-full border border-white/30 border-t-white/70 animate-spin" />
+          ) : (
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              {/* Power arc */}
+              <path
+                d="M6.34 6.34a8 8 0 1 0 11.32 0"
+                stroke={isOn ? '#22d3ee' : 'rgba(255,255,255,0.35)'}
+                strokeWidth="2"
+                style={{ filter: isOn ? 'drop-shadow(0 0 4px #22d3ee)' : 'none' }}
+              />
+              {/* Power stem */}
+              <line
+                x1="12" y1="2" x2="12" y2="12"
+                stroke={isOn ? '#22d3ee' : 'rgba(255,255,255,0.35)'}
+                strokeWidth="2"
+                style={{ filter: isOn ? 'drop-shadow(0 0 4px #22d3ee)' : 'none' }}
+              />
+            </svg>
+          )}
+        </button>
+
+        {/* Label */}
+        <span
+          className="font-mono text-[9px] tracking-widest uppercase max-w-[80px] text-center truncate transition-colors duration-300"
+          style={{ color: isOn ? 'rgba(34,211,238,0.9)' : 'rgba(255,255,255,0.3)' }}
+        >
+          {entity ? entity.name : (loading ? '…' : 'NOT FOUND')}
+        </span>
+      </motion.div>
     </div>
   );
 }

@@ -8,14 +8,40 @@ import {
   systemPreferences,
   dialog,
   protocol,
+  desktopCapturer,
 } from 'electron';
 import path from 'path';
 import http from 'http';
+import https from 'https';
 import fs from 'fs';
+import crypto from 'crypto';
 import { spawn, ChildProcess } from 'child_process';
+import { networkInterfaces } from 'os';
 
 const isDev = !app.isPackaged;
 const PORT = 3000;
+const HTTPS_PORT = 3443;
+
+// Global safety net: ECONNRESET / EPIPE are harmless connection-level errors
+// that happen when a phone/tablet disconnects mid-request (iOS tab kill, screen
+// lock, navigation). Without this handler they surface as an uncaught exception
+// and crash the entire Electron main process, which restarts the app and reloads
+// every connected client. We swallow them here; all other errors are re-thrown.
+process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
+    console.warn('[jarvis] Swallowed uncaught', err.code, '— client disconnected mid-request.');
+    return;
+  }
+  throw err;
+});
+process.on('unhandledRejection', (reason) => {
+  const code = (reason as NodeJS.ErrnoException)?.code;
+  if (code === 'ECONNRESET' || code === 'EPIPE') {
+    console.warn('[jarvis] Swallowed unhandledRejection', code);
+    return;
+  }
+  console.error('[jarvis] Unhandled rejection:', reason);
+});
 
 /** Lets the Next.js UI load local PDFs from absolute paths inside an iframe. */
 protocol.registerSchemesAsPrivileged([
@@ -376,6 +402,15 @@ function setupDesktopModeIpc() {
     if (process.platform !== 'darwin') return;
     desktopHitboxWindow?.setIgnoreMouseEvents(passthrough, { forward: true });
   });
+
+  ipcMain.handle('get-audio-source-id', async () => {
+    try {
+      const sources = await desktopCapturer.getSources({ types: ['screen'] });
+      return sources[0]?.id ?? null;
+    } catch {
+      return null;
+    }
+  });
 }
 
 function waitForServer(retries = 40, delay = 500): Promise<void> {
@@ -497,6 +532,120 @@ function requestAccessibilityAndScreenRecording() {
   }
 }
 
+function getLanIp(): string | null {
+  for (const ifaces of Object.values(networkInterfaces())) {
+    for (const iface of ifaces ?? []) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return null;
+}
+
+let httpsServer: https.Server | null = null;
+
+async function startHttpsProxy(): Promise<void> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const selfsigned = require('selfsigned') as typeof import('selfsigned');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const httpProxy  = require('http-proxy')  as typeof import('http-proxy');
+
+    const certPath = path.join(app.getPath('userData'), 'jarvis-tls.json');
+    let pems: { private: string; cert: string };
+
+    // Reuse cached cert so browsers only need to accept it once
+    if (fs.existsSync(certPath)) {
+      pems = JSON.parse(fs.readFileSync(certPath, 'utf-8')) as { private: string; cert: string };
+    } else {
+      const generated = await (selfsigned.generate as (attrs: unknown[], opts: unknown) => Promise<{ private: string; cert: string }>)(
+        [{ name: 'commonName', value: 'jarvis.local' }],
+        { days: 3650 }
+      );
+      pems = generated;
+      fs.writeFileSync(certPath, JSON.stringify(pems));
+    }
+
+    const proxy = httpProxy.createProxyServer({
+      target: `http://127.0.0.1:${PORT}`,
+      ws: true,
+      changeOrigin: true,
+    });
+
+    // Swallow all proxy-level errors (ECONNRESET, ECONNREFUSED, etc.)
+    proxy.on('error', (err: NodeJS.ErrnoException, _req, res) => {
+      const code = err.code ?? '';
+      if (code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'EPIPE') return;
+      console.error('[jarvis] Proxy error:', err.message);
+      // Try to send a 502 if the response is still writable
+      try {
+        if (res && 'writeHead' in res && typeof (res as import('http').ServerResponse).writeHead === 'function') {
+          (res as import('http').ServerResponse).writeHead(502);
+          (res as import('http').ServerResponse).end();
+        }
+      } catch { /* already sent */ }
+    });
+
+    httpsServer = https.createServer({ key: pems.private, cert: pems.cert }, (req, res) => {
+      proxy.web(req, res);
+    });
+
+    // Handle socket-level errors on every incoming TLS connection.
+    // When a phone disconnects mid-request (iOS tab kill, screen lock, navigation)
+    // the TLS socket throws ECONNRESET. Without this handler it reaches Node.js as
+    // an uncaught exception and crashes the entire Electron main process.
+    httpsServer.on('connection', (socket) => {
+      socket.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'ECONNRESET' || err.code === 'EPIPE') return;
+        console.error('[jarvis] HTTPS socket error:', err.message);
+      });
+    });
+
+    httpsServer.on('upgrade', (req, socket, head) => {
+      socket.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'ECONNRESET' || err.code === 'EPIPE') return;
+        console.error('[jarvis] HTTPS upgrade socket error:', err.message);
+      });
+
+      // Intercept Next.js HMR WebSocket upgrades and silently accept them
+      // without forwarding to the dev server. LAN clients (phones/tablets)
+      // can't establish a real WSS connection over the self-signed cert, so
+      // the HMR socket fails repeatedly → Next.js calls location.reload().
+      // By completing the WebSocket handshake ourselves and keeping the socket
+      // open-but-silent, Next.js thinks it's connected and stops retrying.
+      // No HMR messages are ever sent, so no reloads ever fire.
+      if (req.url && (req.url.includes('webpack-hmr') || req.url.includes('_next/webpack'))) {
+        const key = req.headers['sec-websocket-key'];
+        if (key) {
+          const accept = crypto
+            .createHash('sha1')
+            .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+            .digest('base64');
+          socket.write(
+            'HTTP/1.1 101 Switching Protocols\r\n' +
+            'Upgrade: websocket\r\n' +
+            'Connection: Upgrade\r\n' +
+            `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+          );
+          // Keep the socket alive but never send any HMR frames.
+          socket.on('data', () => { /* ignore pings/frames from client */ });
+        } else {
+          socket.destroy();
+        }
+        return;
+      }
+
+      proxy.ws(req, socket, head);
+    });
+
+    httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
+      const ip = getLanIp();
+      if (ip) console.log(`[jarvis] LAN HTTPS: https://${ip}:${HTTPS_PORT}`);
+    });
+  } catch (err) {
+    console.error('[jarvis] HTTPS proxy failed to start:', err);
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -540,33 +689,31 @@ function createWindow() {
 }
 
 function setupPermissions() {
+  const isJarvisOrigin = (url: string) =>
+    url.startsWith('http://127.0.0.1') ||
+    url.startsWith('http://localhost') ||
+    url.startsWith('https://127.0.0.1') ||
+    url.startsWith('https://localhost');
+
   session.defaultSession.setPermissionRequestHandler(
     (webContents, permission, callback) => {
       const url = webContents.getURL();
-      const isLocalhost =
-        url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost');
-
-      // Allow media + speech recognition permissions from the local Next.js app
       if (
-        isLocalhost &&
+        isJarvisOrigin(url) &&
         ['media', 'microphone', 'camera', 'display-capture', 'speechRecognition', 'speech'].includes(permission)
       ) {
         callback(true);
         return;
       }
-
       callback(false);
     }
   );
 
-  // Allow all permission checks from localhost
   session.defaultSession.setPermissionCheckHandler(
     (webContents, permission) => {
       if (!webContents) return false;
       const url = webContents.getURL();
-      const isLocalhost =
-        url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost');
-      if (isLocalhost && ['media', 'microphone', 'camera', 'speechRecognition', 'speech'].includes(permission)) {
+      if (isJarvisOrigin(url) && ['media', 'microphone', 'camera', 'speechRecognition', 'speech'].includes(permission)) {
         return true;
       }
       return false;
@@ -586,9 +733,11 @@ app.whenReady().then(async () => {
 
   if (isDev) {
     createWindow();
+    startHttpsProxy();
   } else {
     try {
       await startNextServer();
+      startHttpsProxy();
       createWindow();
     } catch (err) {
       console.error('Failed to start Next.js server:', err);
@@ -631,4 +780,5 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   nextServer?.kill();
+  httpsServer?.close();
 });

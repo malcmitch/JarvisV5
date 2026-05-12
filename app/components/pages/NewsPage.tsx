@@ -7,6 +7,7 @@ import { MarketIndicesBar } from './MarketIndicesBar';
 import { StocksColumn } from './StocksColumn';
 import { TopStories } from './TopStories';
 import { NewsSettingsModal, NewsSettings } from './NewsSettingsModal';
+import { saveServerSettings, getCachedSetting } from '../../lib/serverSettings';
 
 const DEFAULT_NEWS_SETTINGS: NewsSettings = {
   streamUrl: 'https://www.youtube.com/embed/live_stream?channel=UCNye-wNBqNL5ZzHSJj3l8Bg',
@@ -32,7 +33,8 @@ function toEmbedUrl(raw: string): string {
 function loadNewsSettings(): NewsSettings {
   if (typeof window === 'undefined') return DEFAULT_NEWS_SETTINGS;
   try {
-    const s = localStorage.getItem('jarvis_news_settings');
+    // Check server cache first, then localStorage
+    const s = getCachedSetting('jarvis_news_settings') || localStorage.getItem('jarvis_news_settings');
     if (s) return { ...DEFAULT_NEWS_SETTINGS, ...JSON.parse(s) };
   } catch { /* fall through */ }
   return DEFAULT_NEWS_SETTINGS;
@@ -50,7 +52,9 @@ export function NewsPage({ onNavigateHome }: Props) {
 
   const saveSettings = (s: NewsSettings) => {
     setSettings(s);
-    localStorage.setItem('jarvis_news_settings', JSON.stringify(s));
+    const serialised = JSON.stringify(s);
+    localStorage.setItem('jarvis_news_settings', serialised);
+    saveServerSettings({ jarvis_news_settings: serialised });
   };
 
   return (

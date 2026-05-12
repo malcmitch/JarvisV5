@@ -1,0 +1,29 @@
+{
+  "type": "client",
+  "name": "open_url",
+  "description": "Open a URL in a new browser tab. Use this when the user asks to open a website, visit a link, or go to a URL.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": false,
+  "response_timeout_secs": 1,
+  "parameters": [
+    {
+      "id": "url",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The full URL to open, including https://. If the user says a site name like 'open YouTube', construct the URL as 'https://youtube.com'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

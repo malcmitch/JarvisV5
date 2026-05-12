@@ -1,0 +1,29 @@
+{
+  "type": "client",
+  "name": "run_shell_command",
+  "description": "Execute a shell command on the user's computer. Use this to open applications, manage files, run scripts, get system info, or perform any task that can be done in a terminal. Prefer this over computer_use for anything that can be done via command line.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 15,
+  "parameters": [
+    {
+      "id": "command",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The shell command to run on the user's computer. On macOS use zsh syntax (e.g. 'open -a Discord'). On Windows use PowerShell syntax. Chain multiple steps with &&. Extract the intent from the user's request and form the appropriate command.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

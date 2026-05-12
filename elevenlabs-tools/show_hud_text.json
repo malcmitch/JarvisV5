@@ -1,0 +1,39 @@
+{
+  "type": "client",
+  "name": "show_hud_text",
+  "description": "Display a TEXT NOTE widget on the user's HUD with specific content. Use when the user asks you to write something on screen, pin a note, show a reminder, or display text visibly alongside the interface.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": false,
+  "response_timeout_secs": 1,
+  "parameters": [
+    {
+      "id": "content",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The full text body to display in the widget. Extract or compose the text the user wants shown on screen.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "title",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Optional short title shown in the widget header, e.g. 'REMINDER', 'NOTE', 'TODO'. Omit if the user didn't specify one.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

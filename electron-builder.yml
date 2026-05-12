@@ -9,6 +9,11 @@ directories:
 files:
   - dist-electron/**/*
   - package.json
+  - node_modules/selfsigned/**/*
+  - node_modules/node-forge/**/*
+  - node_modules/http-proxy/**/*
+  - node_modules/eventemitter3/**/*
+  - node_modules/requires-port/**/*
   - "!node_modules/**"
   - "!release/**"
   - "!.next/**"

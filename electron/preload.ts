@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electron', {
   setDesktopPanelMousePassthrough: (passthrough: boolean) =>
     ipcRenderer.send('desktop-mode:mouse-passthrough', passthrough),
   overlayClick: () => ipcRenderer.send('desktop-mode:overlay-clicked'),
+  getAudioSourceId: (): Promise<string | null> => ipcRenderer.invoke('get-audio-source-id'),
   onDesktopOverlayClick: (callback: () => void) => {
     ipcRenderer.on('desktop-mode:overlay-click', callback);
     return () => ipcRenderer.removeAllListeners('desktop-mode:overlay-click');

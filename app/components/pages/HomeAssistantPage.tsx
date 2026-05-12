@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HomeAssistantWizard } from '../wizards/HomeAssistantWizard';
+import { loadServerSettings } from '../../lib/serverSettings';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -949,10 +950,22 @@ function SmallDeviceRow({ entity, onToggle }: { entity: HAEntity; onToggle: () =
       </div>
       {/* Toggle */}
       <button onClick={onToggle}
-        className="relative w-8 h-4 shrink-0 rounded-sm transition-all"
-        style={{ clipPath: CLIP_SM, background: on ? `rgba(${accent.rgb},0.2)` : 'rgba(255,255,255,0.05)', border: `1px solid ${on ? `rgba(${accent.rgb},0.5)` : 'rgba(255,255,255,0.1)'}` }}>
-        <span className="absolute top-0.5 w-3 h-3 rounded-sm transition-all duration-200"
-          style={{ clipPath: CLIP_SM, left: on ? '13px' : '1px', background: on ? accent.color : 'rgba(255,255,255,0.3)' }} />
+        className="relative shrink-0 transition-all duration-200"
+        style={{
+          width: 36, height: 20,
+          borderRadius: 999,
+          background: on ? 'rgba(59,130,246,0.35)' : 'rgba(255,255,255,0.07)',
+          border: `1.5px solid ${on ? 'rgba(96,165,250,0.7)' : 'rgba(255,255,255,0.15)'}`,
+          boxShadow: on ? '0 0 8px rgba(59,130,246,0.4)' : 'none',
+        }}>
+        <span className="absolute top-[2px] transition-all duration-200"
+          style={{
+            width: 14, height: 14,
+            borderRadius: '50%',
+            left: on ? 18 : 2,
+            background: on ? '#60a5fa' : 'rgba(255,255,255,0.3)',
+            boxShadow: on ? '0 0 6px rgba(96,165,250,0.8)' : 'none',
+          }} />
       </button>
     </div>
   );
@@ -1271,9 +1284,15 @@ export function HomeAssistantPage({ onNavigateHome }: Props) {
   }, []);
 
   useEffect(() => {
-    const cfg = loadHAConfig();
-    if (cfg.url && cfg.token) { setHaUrl(cfg.url); setHaToken(cfg.token); fetchEntities(cfg.url, cfg.token); }
-    else setShowWizard(true);
+    loadServerSettings().then((srv) => {
+      const url   = srv.jarvis_ha_url   || loadHAConfig().url;
+      const token = srv.jarvis_ha_token || loadHAConfig().token;
+      // Back-fill localStorage so the host machine also benefits
+      if (srv.jarvis_ha_url)   localStorage.setItem('jarvis_ha_url',   srv.jarvis_ha_url);
+      if (srv.jarvis_ha_token) localStorage.setItem('jarvis_ha_token', srv.jarvis_ha_token);
+      if (url && token) { setHaUrl(url); setHaToken(token); fetchEntities(url, token); }
+      else setShowWizard(true);
+    });
   }, [fetchEntities]);
 
   useEffect(() => {

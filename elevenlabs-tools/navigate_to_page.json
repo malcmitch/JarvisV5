@@ -1,0 +1,30 @@
+{
+  "type": "client",
+  "name": "navigate_to_page",
+  "description": "Navigate Jarvis to a different page. Use for home, news, calendar, home-assistant, 3d-printers, and music pages. NEVER use this for map or location requests — use map_command instead.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "page",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The page to navigate to. Use 'home' for the main screen, 'news' for the live news feed, 'calendar' for schedule/planning, 'home-assistant' for smart home, '3d-printers' for the Bambu Lab dashboard, 'music' for the full-screen music player.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["home", "news", "calendar", "home-assistant", "3d-printers", "music"],
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

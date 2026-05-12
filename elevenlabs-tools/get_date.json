@@ -1,0 +1,18 @@
+{
+  "type": "client",
+  "name": "get_date",
+  "description": "Get the current date. Call this whenever the user asks what day it is, what today's date is, or anything about the current date.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 3,
+  "parameters": [],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

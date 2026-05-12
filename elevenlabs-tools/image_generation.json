@@ -1,0 +1,51 @@
+{
+  "type": "client",
+  "name": "image_generation",
+  "description": "Generate an image from the user's description using OpenAI GPT Image and display it in an IMAGE widget on the HUD. Use when the user asks you to generate, create, draw, or make an image of something.",
+  "disable_interruptions": true,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 60,
+  "parameters": [
+    {
+      "id": "prompt",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Detailed description of the image to generate. Extract the full visual description from the user's request, adding detail where helpful.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "size",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Output dimensions. Use '1536x1024' for landscape, '1024x1536' for portrait, '1024x1024' for square. Omit or use 'auto' if not specified.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["1024x1024", "1536x1024", "1024x1536", "auto"],
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "quality",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Rendering quality. Use 'high' for detailed output, 'low' for quick previews. Omit for automatic.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["low", "medium", "high", "auto"],
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

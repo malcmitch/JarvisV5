@@ -1,0 +1,41 @@
+{
+  "type": "client",
+  "name": "desktop_mode",
+  "description": "Control Jarvis desktop / floating / transparent panel mode. Use when the user says 'desktop mode', 'transparent mode', 'hover mode', 'floating panel', 'stay on top', 'move to top right corner', or 'go back to full app'.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 3,
+  "parameters": [
+    {
+      "id": "action",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Use 'enable' to enter floating/transparent mode. Use 'disable' to restore the full app. Use 'move' to reposition the logo to a different corner.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["enable", "disable", "move"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "position",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The screen corner for the floating Jarvis logo. Defaults to 'bottom-right' if not specified.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["top-left", "top-right", "bottom-left", "bottom-right"],
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

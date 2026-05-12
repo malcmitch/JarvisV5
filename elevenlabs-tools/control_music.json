@@ -1,0 +1,40 @@
+{
+  "type": "client",
+  "name": "control_music",
+  "description": "Control music playback. Works with Spotify and Apple Music on macOS, and the system media session on Windows. Use this when the user says play, pause, skip, next, previous, or asks to change the volume.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "command",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The playback command to execute. Use 'play' or 'pause' when the user says play/pause. 'playpause' to toggle. 'next' to skip. 'previous' to go back. 'volume_up' or 'volume_down' for relative volume. 'volume' when setting a specific level.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["playpause", "play", "pause", "next", "previous", "volume_up", "volume_down", "volume"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "value",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Volume level from 0 to 100. Only used when command is 'volume'. Extract the number the user specified, e.g. 'set volume to 50' → 50.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

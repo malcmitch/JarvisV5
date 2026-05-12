@@ -1,0 +1,39 @@
+{
+  "type": "client",
+  "name": "find_datasheet",
+  "description": "Find and display a component or board datasheet as a PDF in the HUD viewer. Use when the user asks for a datasheet, pinout, reference manual, or product brief for a named part or dev board.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 15,
+  "parameters": [
+    {
+      "id": "part_name",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The part number, module name, or product name to look up, e.g. 'Raspberry Pi 5', 'ESP32-S3-WROOM-1', 'STM32F407', 'Arduino Uno R4'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "title",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Optional custom title for the HUD panel header. Omit to use the default 'DATASHEET — [part]' header.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}
