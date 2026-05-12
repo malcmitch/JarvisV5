@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   elevenLabsFirstMessage: '',
   voice: 'echo',
   initialPrompt: 'You are Jarvis, a helpful AI assistant. You are always helpful, polite, and concise. Subtle British accent. Robotic. Emotionally controlled. Witty and a little bit poking fun at the user.',
-  enabledFunctions: ['desktop_mode'],
+  enabledFunctions: ['desktop_mode', 'navigate_to_page'],
   theme: 'arc-reactor',
   grid: 'off',
   visualizer: 'frequency-ring',
@@ -768,7 +768,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
             voice: currentSettings.voice,
             instructions:
               currentSettings.initialPrompt +
-              '\n\nIMPORTANT RULE: Never call navigate_to_page or any navigation/page-switching function unless the user explicitly tells you to navigate somewhere. Do not navigate as part of a greeting, reconnect, or on your own initiative.',
+              '\n\nDo not call navigate_to_page as part of a greeting or on your own initiative — only call it when the user explicitly asks to go to a different page.',
             ...(enabledTools.length > 0 && { tools: enabledTools }),
           },
         };
