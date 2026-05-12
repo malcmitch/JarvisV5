@@ -31,13 +31,70 @@ function copyDir(src, dest) {
 
 console.log('\n📦 Post-build: copying assets into standalone output...\n');
 
-// If a previous packaging run left ./release inside standalone, remove it or
-// the next electron-builder pass nests full installers inside the app (GB bloat).
-const strayRelease = path.join(STANDALONE, 'release');
-if (fs.existsSync(strayRelease)) {
-  fs.rmSync(strayRelease, { recursive: true, force: true });
-  console.log('  [ok] removed stray .next/standalone/release (prevents recursive pack)\n');
+// ── Aggressively clean the standalone directory ──────────────────────────────
+// Next.js copies the entire project root into standalone. Remove anything that
+// is not needed at runtime — otherwise old release folders, source files, and
+// config files balloon the installer by gigabytes.
+
+// 1. Remove any directory that looks like a release / dist artifact
+const releasePatterns = ['release', 'dist-electron', 'dist', 'out'];
+if (!fs.existsSync(STANDALONE)) {
+  console.warn(`  [skip] standalone not found — run next build first\n`);
+  process.exit(0);
 }
+for (const name of fs.readdirSync(STANDALONE)) {
+  const full = path.join(STANDALONE, name);
+  // Remove directories that look like release outputs (case-insensitive contains "release")
+  if (fs.statSync(full).isDirectory() && (
+    releasePatterns.includes(name.toLowerCase()) ||
+    name.toLowerCase().includes('release') ||
+    name.toLowerCase().startsWith('jarvis release') ||
+    name.toLowerCase().startsWith('jarvis setup')
+  )) {
+    fs.rmSync(full, { recursive: true, force: true });
+    console.log(`  [ok] removed stray release dir: ${name}`);
+  }
+}
+
+// 2. Remove source/config files that should never ship
+const JUNK_FILES = [
+  'electron-builder.yml',
+  'next.config.ts', 'next.config.js', 'next.config.mjs',
+  'postcss.config.mjs', 'postcss.config.js',
+  'eslint.config.mjs', 'eslint.config.js', '.eslintrc.js', '.eslintrc.json',
+  'tsconfig.json', 'tsconfig.electron.json', 'tsconfig.tsbuildinfo',
+  'instrumentation.ts',
+  'icon.png',
+  'README.md', 'MCP_AND_SKILLS_README.md',
+  'env.example',
+  'jarvis-server-settings.json',  // secrets — must never ship
+  'jarvis-mcp.config.json',
+  'jarvis-skills.config.json',
+  'jarvis-mcp.config.json.example',
+  'jarvis-skills.config.json.example',
+  'package-lock.json',
+];
+const JUNK_DIRS = [
+  'electron', 'electron-scripts', 'buildfiles',
+  'elevenlabs-tools',
+  '.pyinstaller', '.playwright-mcp',
+];
+
+for (const f of JUNK_FILES) {
+  const target = path.join(STANDALONE, f);
+  if (fs.existsSync(target)) {
+    fs.rmSync(target);
+    console.log(`  [ok] removed ${f}`);
+  }
+}
+for (const d of JUNK_DIRS) {
+  const target = path.join(STANDALONE, d);
+  if (fs.existsSync(target)) {
+    fs.rmSync(target, { recursive: true, force: true });
+    console.log(`  [ok] removed dir ${d}/`);
+  }
+}
+console.log();
 
 copyDir(STATIC_SRC, STATIC_DEST);
 copyDir(PUBLIC_SRC, PUBLIC_DEST);
