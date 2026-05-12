@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HomeAssistantWizard } from '../wizards/HomeAssistantWizard';
 import { loadServerSettings } from '../../lib/serverSettings';
+import { PageHeader } from '../PageHeader';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1373,37 +1374,29 @@ export function HomeAssistantPage({ onNavigateHome }: Props) {
           ))}
 
           {/* ── Top bar ──────────────────────────────────────────────────────── */}
-          <div className="relative z-10 flex items-center justify-between px-6 py-3 shrink-0 border-b"
-            style={{ background: 'rgba(2,4,10,0.85)', borderColor: 'rgba(34,211,238,0.08)', backdropFilter: 'blur(12px)' }}>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
-                <span className="font-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: '#22d3ee' }}>J.A.R.V.I.S.</span>
-                <span className="font-mono text-[10px] text-white/30 uppercase tracking-widest">· Home Control</span>
-              </div>
-              {haUrl && (
-                <button onClick={() => setShowWizard(true)}
-                  className="flex items-center gap-1.5 px-3 h-6 font-mono text-[8px] uppercase tracking-wider"
-                  style={{ clipPath: CLIP_SM, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)', color: '#4ade80' }}>
-                  <div className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
-                  {onCount} active · {allCount} total
-                </button>
-              )}
-              {loading && <span className="font-mono text-[8px] text-white/20 animate-pulse uppercase tracking-wider">Syncing…</span>}
-              {error   && <span className="font-mono text-[8px] text-red-400/60 max-w-xs truncate">{error}</span>}
-            </div>
-            <div className="flex items-center gap-5">
-              <div className="text-center">
-                <div className="font-mono text-lg font-bold text-white leading-none">{clock}</div>
-                <div className="font-mono text-[8px] text-cyan-400/60 uppercase tracking-widest mt-0.5">{today.split(',')[0]}, {today.split(',')[1]?.trim()}</div>
-              </div>
-              <button onClick={onNavigateHome}
-                className="h-8 px-4 font-mono text-[9px] uppercase tracking-wider text-white/35 hover:text-orange-300 transition-all"
-                style={{ clipPath: CLIP_SM, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)' }}>
-                ← Home
-              </button>
-            </div>
-          </div>
+          <PageHeader
+            title="Home Control"
+            onNavigateHome={onNavigateHome}
+            accent="orange"
+            right={
+              <>
+                {loading && <span className="font-mono text-[8px] text-white/20 animate-pulse uppercase tracking-wider">Syncing…</span>}
+                {error   && <span className="font-mono text-[8px] text-red-400/60 max-w-xs truncate">{error}</span>}
+                {haUrl && (
+                  <button onClick={() => setShowWizard(true)}
+                    className="flex items-center gap-1.5 px-3 h-6 font-mono text-[8px] uppercase tracking-wider rounded"
+                    style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)', color: '#4ade80' }}>
+                    <div className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+                    {onCount} active · {allCount} total
+                  </button>
+                )}
+                <div className="text-right">
+                  <div className="font-mono text-sm font-bold text-white leading-none">{clock}</div>
+                  <div className="font-mono text-[8px] text-cyan-400/60 uppercase tracking-widest mt-0.5">{today.split(',')[0]}, {today.split(',')[1]?.trim()}</div>
+                </div>
+              </>
+            }
+          />
 
           {/* ── Body ─────────────────────────────────────────────────────────── */}
           <div className="relative z-10 flex flex-1 min-h-0">

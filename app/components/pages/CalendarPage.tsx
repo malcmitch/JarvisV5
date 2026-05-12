@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { ICalEvent } from '../../api/ical/route';
 import { GoogleCalendarWizard } from '../wizards/GoogleCalendarWizard';
 import type { GoogleServiceId } from '@/app/lib/google-services';
+import { PageHeader } from '../PageHeader';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -318,33 +319,26 @@ export function CalendarPage({ onNavigateHome }: Props) {
         <div key={i} className={`absolute w-8 h-8 ${cls} border-cyan-500/20 pointer-events-none z-10 m-3`} />
       ))}
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-8 py-4 border-b border-white/[0.06]">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="text-[10px] font-mono text-cyan-400/70 uppercase tracking-widest">Jarvis Calendar</span>
-          </div>
-          <button
-            onClick={() => setShowWizard(true)}
-            className={`flex items-center gap-1.5 px-3 h-7 rounded-lg border text-[9px] font-mono uppercase tracking-wider transition-all
-              ${gcalConfigured
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-                : 'bg-white/[0.04] border-white/[0.08] text-white/30 hover:text-white/50 hover:border-white/15'}`}
-          >
-            <div className={`w-1 h-1 rounded-full ${gcalConfigured ? 'bg-emerald-400' : 'bg-white/20'}`} />
-            {gcalConfigured ? 'Google Services' : 'Connect Google'}
-          </button>
-          {gcalEventsLoading && <span className="text-[9px] font-mono text-white/20 animate-pulse">Syncing…</span>}
-          {gcalEventsError   && <span className="text-[9px] font-mono text-red-400/60">{gcalEventsError}</span>}
-        </div>
-        <button
-          onClick={onNavigateHome}
-          className="h-8 px-4 flex items-center gap-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/40 hover:text-cyan-400 hover:border-cyan-500/40 transition-all text-[9px] font-mono uppercase tracking-wider"
-        >
-          ← Home
-        </button>
-      </div>
+      <PageHeader
+        title="Calendar"
+        onNavigateHome={onNavigateHome}
+        right={
+          <>
+            {gcalEventsLoading && <span className="text-[9px] font-mono text-white/20 animate-pulse">Syncing…</span>}
+            {gcalEventsError   && <span className="text-[9px] font-mono text-red-400/60">{gcalEventsError}</span>}
+            <button
+              onClick={() => setShowWizard(true)}
+              className={`flex items-center gap-1.5 px-3 h-7 rounded-lg border text-[9px] font-mono uppercase tracking-wider transition-all
+                ${gcalConfigured
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                  : 'bg-white/[0.04] border-white/[0.08] text-white/30 hover:text-white/50 hover:border-white/15'}`}
+            >
+              <div className={`w-1 h-1 rounded-full ${gcalConfigured ? 'bg-emerald-400' : 'bg-white/20'}`} />
+              {gcalConfigured ? 'Google Services' : 'Connect Google'}
+            </button>
+          </>
+        }
+      />
 
       {/* Body */}
       <div className="flex flex-1 min-h-0">

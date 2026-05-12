@@ -8,6 +8,7 @@ import { StocksColumn } from './StocksColumn';
 import { TopStories } from './TopStories';
 import { NewsSettingsModal, NewsSettings } from './NewsSettingsModal';
 import { saveServerSettings, getCachedSetting } from '../../lib/serverSettings';
+import { PageHeader } from '../PageHeader';
 
 const DEFAULT_NEWS_SETTINGS: NewsSettings = {
   streamUrl: 'https://www.youtube.com/embed/live_stream?channel=UCNye-wNBqNL5ZzHSJj3l8Bg',
@@ -66,13 +67,29 @@ export function NewsPage({ onNavigateHome }: Props) {
       exit={{ x: '-100%', filter: 'blur(24px)', opacity: 0 }}
       transition={{ duration: 0.65, ease: [0.4, 0, 0.2, 1] }}
     >
-      {/* ── Row 1: Horizontal headline ticker ── */}
+      {/* ── Row 1: Standard nav header ── */}
+      <PageHeader
+        title="News"
+        onNavigateHome={onNavigateHome}
+        accent="green"
+        right={
+          <button
+            onClick={() => setSettingsOpen(true)}
+            title="Settings"
+            className="w-7 h-7 flex items-center justify-center rounded bg-white/[0.04] border border-white/[0.08] text-white/35 hover:text-cyan-400 hover:border-cyan-500/30 transition-all text-xs"
+          >
+            ⚙
+          </button>
+        }
+      />
+
+      {/* ── Row 2: Horizontal headline ticker ── */}
       <HeadlineTicker />
 
-      {/* ── Row 2: Global market indices bar ── */}
+      {/* ── Row 3: Global market indices bar ── */}
       <MarketIndicesBar />
 
-      {/* ── Row 3: Main content ── */}
+      {/* ── Row 4: Main content ── */}
       <div className="flex flex-1 overflow-hidden min-h-0">
 
         {/* LEFT: stream + top stories below */}
@@ -122,27 +139,10 @@ export function NewsPage({ onNavigateHome }: Props) {
         {/* RIGHT: controls header + stocks */}
         <div className="w-[320px] shrink-0 flex flex-col border-l border-cyan-500/10 bg-black/40 overflow-hidden">
 
-          {/* Panel header with navigation controls */}
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-cyan-500/10 shrink-0">
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[9px] font-mono text-cyan-400/60 uppercase tracking-widest">Markets</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setSettingsOpen(true)}
-                title="Settings"
-                className="w-7 h-7 flex items-center justify-center rounded bg-white/[0.04] border border-white/8 text-white/35 hover:text-cyan-400 hover:border-cyan-500/30 transition-all text-xs"
-              >
-                ⚙
-              </button>
-              <button
-                onClick={onNavigateHome}
-                className="h-7 px-2.5 flex items-center gap-1 rounded bg-white/[0.04] border border-white/8 text-white/35 hover:text-cyan-400 hover:border-cyan-500/30 transition-all text-[9px] font-mono uppercase tracking-wider"
-              >
-                ← Home
-              </button>
-            </div>
+          {/* Panel header */}
+          <div className="flex items-center px-3 py-2.5 border-b border-cyan-500/10 shrink-0">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            <span className="ml-2 text-[9px] font-mono text-cyan-400/60 uppercase tracking-widest">Markets</span>
           </div>
 
           {/* Stocks — scrollable */}

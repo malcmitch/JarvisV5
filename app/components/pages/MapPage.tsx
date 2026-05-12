@@ -317,17 +317,20 @@ export function MapPage({ onNavigateHome, pendingCommand, onPendingCommandConsum
       {/* Top-left: label + search */}
       <div className="absolute top-4 left-4 z-[500] flex flex-col gap-2.5">
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/75 border border-cyan-500/20 backdrop-blur-sm">
+          {/* Title pill */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/80 border border-cyan-500/20 backdrop-blur-sm">
             <div className={`w-1.5 h-1.5 rounded-full ${ready ? 'bg-cyan-400 animate-pulse' : 'bg-white/20'}`} />
-            <span className="text-[9px] font-mono text-cyan-400/70 uppercase tracking-widest">
-              Jarvis Map
-            </span>
+            <span className="text-[9px] font-mono text-cyan-400/70 uppercase tracking-widest">Jarvis · Map</span>
           </div>
+          {/* Standardised home button */}
           <button
             onClick={onNavigateHome}
-            className="h-8 px-3 flex items-center gap-1.5 rounded-lg bg-black/75 border border-cyan-500/20 text-white/40 hover:text-cyan-400 hover:border-cyan-500/40 transition-all text-[9px] font-mono uppercase tracking-wider backdrop-blur-sm"
+            className="h-8 px-3 flex items-center gap-2 rounded-lg bg-black/80 border border-cyan-500/20 text-white/35 hover:text-cyan-400 hover:border-cyan-500/40 transition-colors text-[9px] font-mono uppercase tracking-widest backdrop-blur-sm"
           >
-            ← Home
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 3L5 8l5 5" />
+            </svg>
+            Home
           </button>
         </div>
 

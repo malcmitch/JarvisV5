@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { saveServerSettings, getCachedSetting } from '../../lib/serverSettings';
+import { PageHeader } from '../PageHeader';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -514,14 +515,7 @@ export function PrinterPage({ onNavigateHome }: Props) {
   if (!authenticated) {
     return (
       <>
-        {/* Top bar */}
-        <div className="relative z-10 flex items-center justify-between px-6 py-3 shrink-0" style={{ borderBottom: '1px solid rgba(34,211,238,0.1)', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(10px)' }}>
-          <button onClick={onNavigateHome} className="flex items-center gap-2 font-mono text-xs text-white/40 hover:text-white/70 transition-colors">
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M10 12L6 8l4-4"/></svg>
-            Back
-          </button>
-          <span className="font-mono text-xs text-white/30">{clock}</span>
-        </div>
+        <PageHeader title="3D Printers" onNavigateHome={onNavigateHome} right={<span className="font-mono text-xs text-white/30">{clock}</span>} />
         <BambuWizard onComplete={handleWizardComplete} />
       </>
     );
@@ -531,43 +525,31 @@ export function PrinterPage({ onNavigateHome }: Props) {
   return (
     <>
 
-      {/* Top bar */}
-      <div className="relative z-10 flex items-center justify-between px-6 py-3 shrink-0" style={{ borderBottom: '1px solid rgba(34,211,238,0.12)', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(12px)' }}>
-        <div className="flex items-center gap-4">
-          <button onClick={onNavigateHome} className="flex items-center gap-2 font-mono text-xs text-white/40 hover:text-white/70 transition-colors">
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M10 12L6 8l4-4"/></svg>
-            Home
-          </button>
-          <div className="w-px h-4 bg-white/10" />
-          <div className="flex items-center gap-2">
-            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="#22d3ee" strokeWidth="1.5">
-              <rect x="4" y="7" width="12" height="9" rx="2"/>
-              <path d="M6 7V5a4 4 0 0 1 8 0v2"/><circle cx="10" cy="11.5" r="2"/>
-            </svg>
-            <span className="font-mono text-sm font-bold text-white tracking-wide">3D Printers</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <div className={`w-2 h-2 rounded-full ${mqttConnected ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
-            <span className="font-mono text-[10px]" style={{ color: mqttConnected ? '#4ade80' : 'rgba(255,255,255,0.3)' }}>
-              {mqttConnected ? 'Cloud Connected' : 'Connecting…'}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: 'rgba(34,211,238,0.08)', border: '1px solid rgba(34,211,238,0.2)' }}>
-            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#22d3ee" strokeWidth="1.5"><rect x="2" y="5" width="12" height="8" rx="1.5"/><path d="M5 5V4a3 3 0 0 1 6 0v1"/></svg>
-            <span className="font-mono text-[10px] text-cyan-400">{printers.length} printer{printers.length !== 1 ? 's' : ''}</span>
-          </div>
-          {activePrinters.length > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)' }}>
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-mono text-[10px] text-emerald-400">{activePrinters.length} printing</span>
+      <PageHeader
+        title="3D Printers"
+        onNavigateHome={onNavigateHome}
+        right={
+          <>
+            <div className="flex items-center gap-1.5">
+              <div className={`w-2 h-2 rounded-full ${mqttConnected ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
+              <span className="font-mono text-[10px]" style={{ color: mqttConnected ? '#4ade80' : 'rgba(255,255,255,0.3)' }}>
+                {mqttConnected ? 'Cloud Connected' : 'Connecting…'}
+              </span>
             </div>
-          )}
-          <span className="font-mono text-xs text-white/30">{clock}</span>
-        </div>
-      </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: 'rgba(34,211,238,0.08)', border: '1px solid rgba(34,211,238,0.2)' }}>
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#22d3ee" strokeWidth="1.5"><rect x="2" y="5" width="12" height="8" rx="1.5"/><path d="M5 5V4a3 3 0 0 1 6 0v1"/></svg>
+              <span className="font-mono text-[10px] text-cyan-400">{printers.length} printer{printers.length !== 1 ? 's' : ''}</span>
+            </div>
+            {activePrinters.length > 0 && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)' }}>
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="font-mono text-[10px] text-emerald-400">{activePrinters.length} printing</span>
+              </div>
+            )}
+            <span className="font-mono text-xs text-white/30">{clock}</span>
+          </>
+        }
+      />
 
       {/* Tab bar */}
       <div className="relative z-10 flex items-center gap-1 px-6 py-2 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>

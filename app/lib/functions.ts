@@ -1054,6 +1054,28 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
     },
   },
   {
+    name: 'jarvis_disconnect',
+    label: 'Disconnect / Mute',
+    description: 'End the current Jarvis session (equivalent to clicking the logo / pressing disconnect)',
+    tool: {
+      type: 'function',
+      name: 'jarvis_disconnect',
+      description:
+        'Immediately end the current Jarvis voice session and go silent. ' +
+        'Call this when the user says anything like "mute", "stop listening", "end call", "go to sleep", "disconnect", "shut up", "be quiet", "that\'s enough", or similar. ' +
+        'Do NOT call navigate_to_page first — just call this.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+    handler: async () => {
+      // Dispatch the disconnect event — JarvisAssistant will call disconnect()
+      // after a short delay so this result can be sent back first.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('jarvis:self-disconnect'));
+      }
+      return { success: true, message: 'Disconnecting…' };
+    },
+  },
+  {
     name: 'navigate_to_page',
     label: 'Navigate to Page',
     description: 'Switch Jarvis to a different view — e.g. open the live news feed and stock ticker',

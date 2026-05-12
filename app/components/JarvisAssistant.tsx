@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   elevenLabsFirstMessage: '',
   voice: 'echo',
   initialPrompt: 'You are Jarvis, a helpful AI assistant. You are always helpful, polite, and concise. Subtle British accent. Robotic. Emotionally controlled. Witty and a little bit poking fun at the user.',
-  enabledFunctions: ['desktop_mode', 'navigate_to_page'],
+  enabledFunctions: ['desktop_mode', 'navigate_to_page', 'jarvis_disconnect'],
   theme: 'arc-reactor',
   grid: 'off',
   visualizer: 'frequency-ring',
@@ -228,6 +228,17 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     window.addEventListener('jarvis:desktop-mode', handler);
     return () => window.removeEventListener('jarvis:desktop-mode', handler);
   }, [settings.logo, settings.position]);
+
+  // jarvis:self-disconnect — fired by jarvis_disconnect function tool
+  useEffect(() => {
+    const handler = () => {
+      // Small delay so the function-call result can be sent over the data channel first
+      setTimeout(() => disconnect(), 600);
+    };
+    window.addEventListener('jarvis:self-disconnect', handler);
+    return () => window.removeEventListener('jarvis:self-disconnect', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Status-change sound effects
   const prevStatusRef = useRef(status);

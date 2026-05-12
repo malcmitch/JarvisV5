@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { PageHeader } from '../PageHeader';
 
 interface TrackInfo {
   app: string;
@@ -144,17 +145,7 @@ export function MusicPage({ onNavigateHome }: Props) {
         <div key={pos} className={`absolute ${pos} w-6 h-6 ${border} border-cyan-400/40 pointer-events-none`} />
       ))}
 
-      {/* Back button */}
-      <div className="relative z-20 flex items-center px-6 pt-5 pb-2 shrink-0">
-        <button onClick={onNavigateHome}
-          className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-cyan-400/70 hover:text-cyan-300 transition-colors">
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-            <path d="M10 3L5 8l5 5" />
-          </svg>
-          Back
-        </button>
-        <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.22em] text-cyan-400/40">Jarvis · Music</span>
-      </div>
+      <PageHeader title="Music" onNavigateHome={onNavigateHome} />
 
       {/* Main content */}
       <div className="flex-1 relative overflow-hidden">
