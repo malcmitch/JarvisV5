@@ -57,4 +57,21 @@ if (process.platform === 'darwin') {
   }
 }
 
+// Scrub any sensitive files that Next.js may have copied from the project root
+// into the standalone output. These must never ship inside a packaged app.
+const SENSITIVE_FILES = [
+  'jarvis-server-settings.json',
+  'jarvis-mcp.config.json',
+  'jarvis-skills.config.json',
+  '.env',
+  '.env.local',
+];
+for (const f of SENSITIVE_FILES) {
+  const target = path.join(STANDALONE, f);
+  if (fs.existsSync(target)) {
+    fs.rmSync(target);
+    console.log(`  [scrubbed] ${f} removed from standalone (contains secrets)`);
+  }
+}
+
 console.log('\n✅ Standalone output is ready.\n');
