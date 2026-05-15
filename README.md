@@ -11,7 +11,7 @@ A fully-featured, Iron Man-inspired AI desktop assistant built with Electron + N
 ### Voice AI
 Speak to Jarvis and get spoken responses in real time. Two conversation backends are supported:
 
-- **OpenAI Realtime** — Ultra-low-latency voice via OpenAI's WebRTC-based realtime API (`gpt-realtime-1.5`). Choose from three voices: Alloy, Echo, or Shimmer.
+- **OpenAI Realtime** — Ultra-low-latency voice via OpenAI's WebRTC-based realtime API (`gpt-realtime-2`). Choose from three voices: Alloy, Echo, or Shimmer.
 - **ElevenLabs Conversational AI** — Alternatively, use ElevenLabs' agent platform with support for custom agent IDs, system prompts, and first-message overrides.
 
 Both modes support custom system instructions so you can shape Jarvis's personality and behavior.

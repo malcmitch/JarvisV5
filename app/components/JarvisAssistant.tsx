@@ -19,6 +19,7 @@ import { installErrorInterceptors, emitError } from '../lib/errorBus';
 import { loadServerSettings, saveServerSettings } from '../lib/serverSettings';
 
 const FFT_BARS = 64;
+const OPENAI_REALTIME_MODEL = 'gpt-realtime-2';
 const DEFAULT_SETTINGS: JarvisSettings = {
   apiMode: 'openai',
   apiKey: '',
@@ -27,6 +28,8 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   voice: 'echo',
   initialPrompt: 'You are Jarvis, a helpful AI assistant. You are always helpful, polite, and concise. Subtle British accent. Robotic. Emotionally controlled. Witty and a little bit poking fun at the user.',
   enabledFunctions: ['desktop_mode', 'navigate_to_page', 'jarvis_disconnect'],
+  wakeWordEnabled: false,
+  wakeWordSensitivity: 0.5,
   theme: 'arc-reactor',
   grid: 'off',
   visualizer: 'frequency-ring',
@@ -151,6 +154,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   const desktopModeRef = useRef(false);
   const desktopPanelPositionRef = useRef<DesktopPanelPosition>('bottom-right');
   const normalPositionBeforeDesktopRef = useRef<JarvisSettings['position'] | null>(null);
+  const settingsRef = useRef(settings);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setMounted(true), 0);
@@ -170,6 +174,10 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   }, [micMuted]);
 
   useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
     const unsubscribe = window.electron?.onDesktopOverlayClick?.(() => {
       sfx('click', 0.45);
       setMicrophoneMuted(!micMutedRef.current);
@@ -177,6 +185,59 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
 
     return () => unsubscribe?.();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Wake word detection — listen for "Jarvis" from main process
+  useEffect(() => {
+    if (!window.electron?.onHeyJarvis) return;
+
+    const unsubscribe = window.electron.onHeyJarvis(() => {
+      console.log('[WakeWord] "Jarvis" detected in renderer');
+
+      // Play the iconic boot sound
+      sfx('intro_sfx', 0.7);
+
+      // Don't re-trigger if already in a conversation
+      if (statusRef.current === 'active' || statusRef.current === 'listening') {
+        return;
+      }
+
+      if (micMutedRef.current) {
+        setMicrophoneMuted(false);
+      }
+
+      void start(settingsRef.current);
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Wake word status updates
+  useEffect(() => {
+    if (!window.electron?.onHeyJarvisStatus) return;
+    const unsub = window.electron.onHeyJarvisStatus((status) => {
+      console.log('[WakeWord] Status:', status);
+    });
+    return () => unsub?.();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Wake word error reporting
+  useEffect(() => {
+    if (!window.electron?.onHeyJarvisError) return;
+    const unsub = window.electron.onHeyJarvisError((error) => {
+      console.error('[WakeWord] Error:', error);
+      setLastError(`Wake word: ${error}`);
+    });
+    return () => unsub?.();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep Electron wake word service aligned with saved settings.
+  useEffect(() => {
+    if (!window.electron) return;
+    window.electron.setWakeWordSensitivity?.(settings.wakeWordSensitivity ?? 0.5);
+    window.electron.setWakeWordEnabled?.(Boolean(settings.wakeWordEnabled));
+  }, [settings.wakeWordEnabled, settings.wakeWordSensitivity]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -701,6 +762,8 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       disconnect(); // Ensure clean slate
       setStatus('listening');
       setLastError(null);
+      // Release the wake-word microphone before the realtime session opens it.
+      window.electron?.setWakeWordMicInUse?.(true);
       
       // Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -752,26 +815,45 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
         }
       };
 
+      const allFunctions = dynamicState.loaded ? dynamicState.allFunctions : FUNCTION_REGISTRY;
+      const enabledTools = allFunctions
+        .filter((fn) => currentSettings.enabledFunctions.includes(fn.name))
+        .map((fn) => fn.tool);
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const model = currentSettings.realtimeModel ?? 'gpt-realtime-2';
+      const model = currentSettings.realtimeModel ?? OPENAI_REALTIME_MODEL;
 
-      const fd = new FormData();
-      fd.set('sdp', offer.sdp ?? '');
-      fd.set('session', JSON.stringify({ type: 'realtime', model, voice: currentSettings.voice ?? 'echo' }));
+      const offerSdp = pc.localDescription?.sdp;
+      if (!offerSdp) throw new Error('Failed to create realtime SDP offer.');
 
+      const sessionConfig = {
+        type: 'realtime',
+        model,
+        instructions: currentSettings.initialPrompt,
+        audio: {
+          output: {
+            voice: currentSettings.voice ?? 'echo',
+          },
+        },
+        ...(enabledTools.length > 0 && { tools: enabledTools }),
+      };
+
+      const body = new FormData();
+      body.set('sdp', offerSdp);
+      body.set('session', JSON.stringify(sessionConfig));
       const response = await fetch('https://api.openai.com/v1/realtime/calls', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${currentSettings.apiKey}`,
         },
-        body: fd,
+        body,
       });
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(`Failed to create realtime session: ${text}`);
+        throw new Error(`Failed to create realtime call: ${text}`);
       }
 
       const answerSdp = await response.text();
@@ -917,6 +999,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
 
     } catch (error) {
       console.error('Error starting realtime:', error);
+      window.electron?.setWakeWordMicInUse?.(false);
       setStatus('error');
       setLastError(error instanceof Error ? error.message : String(error));
     }
@@ -944,12 +1027,15 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       }
       setStatus('listening');
       setLastError(null);
+      // Release the wake-word microphone before ElevenLabs opens it.
+      window.electron?.setWakeWordMicInUse?.(true);
 
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
       const agentId = currentSettings.elevenLabsAgentId?.trim();
       if (!agentId) {
         console.warn('No ElevenLabs Agent ID configured — add one in Settings.');
+        window.electron?.setWakeWordMicInUse?.(false);
         setStatus('idle');
         return;
       }
@@ -966,6 +1052,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       });
     } catch (error) {
       console.error('Error starting ElevenLabs session:', error);
+      window.electron?.setWakeWordMicInUse?.(false);
       setStatus('error');
       setLastError(error instanceof Error ? error.message : String(error));
     }
@@ -1009,6 +1096,8 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     }
     // ElevenLabs cleanup (fire-and-forget; may return undefined if not connected)
     try { elConversation.endSession(); } catch { /* no active session */ }
+    // Signal wake word service that mic is available again
+    window.electron?.setWakeWordMicInUse?.(false);
     setStatus('idle');
   }
 

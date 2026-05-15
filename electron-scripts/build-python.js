@@ -61,11 +61,6 @@ function run(cmd, args, opts = {}) {
 
 console.log('\n🐍 build:python — compiling computer_use binary...\n');
 
-if (isBinaryFresh()) {
-  console.log('  [skip] binary is up-to-date.\n');
-  process.exit(0);
-}
-
 // Ensure venv exists
 if (!fs.existsSync(VENV_PYTHON)) {
   console.log('  Creating virtual environment...');
@@ -75,22 +70,91 @@ if (!fs.existsSync(VENV_PYTHON)) {
 
 // Ensure required packages are installed
 console.log('  Installing/verifying Python dependencies...');
-run(VENV_PIP, ['install', '--quiet', 'mss', 'pyautogui', 'openai', 'Pillow', 'pyinstaller']);
+run(VENV_PIP, ['install', '--quiet', 'mss', 'pyautogui', 'openai', 'Pillow', 'pyinstaller', 'openwakeword', 'sounddevice']);
 
-// Compile
-console.log('  Running PyInstaller...');
-run(VENV_PYINSTALLER, [
-  '--onefile',
-  '--name', 'computer_use',
-  '--distpath', DIST_DIR,
-  '--workpath', path.join(ROOT, '.pyinstaller', 'build'),
-  '--specpath', path.join(ROOT, '.pyinstaller'),
-  SCRIPT,
-]);
+// ── Build computer_use binary ──
+if (isBinaryFresh()) {
+  console.log('  [skip] computer_use binary is up-to-date.\n');
+} else {
+  console.log('  Running PyInstaller for computer_use...');
+  run(VENV_PYINSTALLER, [
+    '--onefile',
+    '--name', 'computer_use',
+    '--distpath', DIST_DIR,
+    '--workpath', path.join(ROOT, '.pyinstaller', 'build'),
+    '--specpath', path.join(ROOT, '.pyinstaller'),
+    SCRIPT,
+  ]);
 
-if (!fs.existsSync(BINARY)) {
-  console.error('\n❌ PyInstaller did not produce the expected binary.\n');
-  process.exit(1);
+  if (!fs.existsSync(BINARY)) {
+    console.error('\n❌ PyInstaller did not produce the computer_use binary.\n');
+    process.exit(1);
+  }
+  console.log(`\n✅ computer_use binary ready: ${path.relative(ROOT, BINARY)} (${(fs.statSync(BINARY).size / 1e6).toFixed(1)} MB)\n`);
 }
 
-console.log(`\n✅ Binary ready: ${path.relative(ROOT, BINARY)} (${(fs.statSync(BINARY).size / 1e6).toFixed(1)} MB)\n`);
+// ── Build wake_word binary ──────────────────────────────────────────
+const WAKE_WORD_SCRIPT = path.join(ROOT, 'scripts', 'wake_word.py');
+const WAKE_WORD_BINARY_NAME = process.platform === 'win32' ? 'wake_word.exe' : 'wake_word';
+const WAKE_WORD_BINARY = path.join(DIST_DIR, WAKE_WORD_BINARY_NAME);
+const WAKE_WORD_MODEL_DIR = path.join(ROOT, 'scripts', 'wakeword_models');
+const WAKE_WORD_MODELS = [
+  path.join(WAKE_WORD_MODEL_DIR, 'jarvis.onnx'),
+  path.join(WAKE_WORD_MODEL_DIR, 'jarvis.tflite'),
+];
+
+function validateWakeWordModel() {
+  for (const modelPath of WAKE_WORD_MODELS) {
+    if (!fs.existsSync(modelPath)) {
+      throw new Error(`Wake word model missing: ${modelPath}`);
+    }
+
+    const stat = fs.statSync(modelPath);
+    const head = fs.readFileSync(modelPath, { encoding: 'utf8', flag: 'r' }).slice(0, 256);
+    if (stat.size < 100000 || /^\s*</.test(head)) {
+      throw new Error(
+        `Wake word model is not a valid binary: ${modelPath}. Re-download jarvis_v2 models from raw GitHub URLs.`
+      );
+    }
+  }
+}
+
+function isWakeWordBinaryFresh() {
+  if (!fs.existsSync(WAKE_WORD_BINARY)) return false;
+  const binaryMtime = fs.statSync(WAKE_WORD_BINARY).mtimeMs;
+  if (!fs.existsSync(WAKE_WORD_MODEL_DIR)) return false;
+  let latestInput = Math.max(
+    fs.statSync(WAKE_WORD_SCRIPT).mtimeMs,
+    fs.statSync(__filename).mtimeMs
+  );
+  for (const f of fs.readdirSync(WAKE_WORD_MODEL_DIR)) {
+    const mtime = fs.statSync(path.join(WAKE_WORD_MODEL_DIR, f)).mtimeMs;
+    if (mtime > latestInput) latestInput = mtime;
+  }
+  return binaryMtime > latestInput;
+}
+
+validateWakeWordModel();
+
+if (isWakeWordBinaryFresh()) {
+  console.log('  [skip] wake_word binary is up-to-date.\n');
+} else {
+  console.log('\n🔊 Building wake_word binary...\n');
+  const sep = process.platform === 'win32' ? ';' : ':';
+  run(VENV_PYINSTALLER, [
+    '--onefile',
+    '--name', 'wake_word',
+    '--distpath', DIST_DIR,
+    '--workpath', path.join(ROOT, '.pyinstaller', 'build'),
+    '--specpath', path.join(ROOT, '.pyinstaller'),
+    '--collect-data', 'openwakeword',
+    '--add-data', WAKE_WORD_MODEL_DIR + sep + 'wakeword_models',
+    WAKE_WORD_SCRIPT,
+  ]);
+
+  if (!fs.existsSync(WAKE_WORD_BINARY)) {
+    console.error('\n❌ PyInstaller did not produce wake_word binary.\n');
+    process.exit(1);
+  }
+  console.log(`\n✅ wake_word binary ready: ${path.relative(ROOT, WAKE_WORD_BINARY)} (${(fs.statSync(WAKE_WORD_BINARY).size / 1e6).toFixed(1)} MB)\n`);
+}

@@ -30,6 +30,8 @@ export interface JarvisSettings {
   voice: 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse' | 'marin' | 'cedar';
   initialPrompt: string;
   enabledFunctions: string[];
+  wakeWordEnabled?: boolean;
+  wakeWordSensitivity?: number;  // 0.0 to 1.0, default 0.5
   theme: JarvisTheme;
   grid: JarvisGrid;
   visualizer: JarvisVisualizer;
@@ -182,7 +184,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                   {(['openai', 'elevenlabs'] as const).map((mode) => {
                     const active = (settings.apiMode ?? 'openai') === mode;
                     const labels = { openai: 'OpenAI Realtime', elevenlabs: 'ElevenLabs' };
-                    const descs  = { openai: 'GPT-4o via WebRTC', elevenlabs: 'Jarvis Agent via WebRTC' };
+                    const descs  = { openai: 'GPT Realtime 2 via WebRTC', elevenlabs: 'Jarvis Agent via WebRTC' };
                     return (
                       <button
                         key={mode}
@@ -201,6 +203,58 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Wake Word Configuration */}
+              <div className="space-y-3 pt-2 border-t border-cyan-500/10">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Wake Word</label>
+                  <button
+                    onClick={() => {
+                      const next = !settings.wakeWordEnabled;
+                      sfx('switch_interface', 0.5, 2);
+                      setSettings({ ...settings, wakeWordEnabled: next });
+                    }}
+                    className={`relative w-10 h-5 rounded-full transition-all ${
+                      settings.wakeWordEnabled ? 'bg-cyan-500' : 'bg-cyan-900/50 border border-cyan-500/30'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-all ${
+                        settings.wakeWordEnabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <p className="text-[10px] text-cyan-700 leading-tight">
+                  When enabled, saying &quot;Jarvis&quot; will activate the assistant using local wake word detection.
+                </p>
+                
+                {settings.wakeWordEnabled && (
+                  <div className="space-y-3 pl-2 border-l border-cyan-500/20">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest">
+                        Sensitivity: {settings.wakeWordSensitivity?.toFixed(2) ?? '0.50'}
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={settings.wakeWordSensitivity ?? 0.5}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setSettings({ ...settings, wakeWordSensitivity: val });
+                        }}
+                        className="w-full accent-cyan-500"
+                      />
+                      <div className="flex justify-between text-[10px] text-cyan-700">
+                        <span>Less sensitive</span>
+                        <span>More sensitive</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* OpenAI fields */}

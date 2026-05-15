@@ -20,6 +20,12 @@ declare global {
       overlayClick: () => void;
       onDesktopOverlayClick: (callback: () => void) => () => void;
       onDesktopPanelMuted: (callback: (muted: boolean) => void) => () => void;
+      onHeyJarvis?: (callback: () => void) => () => void;
+      onHeyJarvisStatus?: (callback: (status: { enabled: boolean; listening: boolean }) => void) => () => void;
+      onHeyJarvisError?: (callback: (error: string) => void) => () => void;
+      setWakeWordEnabled?: (enabled: boolean) => void;
+      setWakeWordSensitivity?: (sensitivity: number) => void;
+      setWakeWordMicInUse?: (inUse: boolean) => void;
     };
   }
 }

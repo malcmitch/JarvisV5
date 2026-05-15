@@ -28,4 +28,25 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('desktop-mode:muted', (_event, muted: boolean) => callback(muted));
     return () => ipcRenderer.removeAllListeners('desktop-mode:muted');
   },
+  onHeyJarvis: (callback: () => void) => {
+    ipcRenderer.on('hey-jarvis:detected', callback);
+    return () => ipcRenderer.removeAllListeners('hey-jarvis:detected');
+  },
+  onHeyJarvisStatus: (callback: (status: { enabled: boolean; listening: boolean }) => void) => {
+    ipcRenderer.on('hey-jarvis:status', (_event, status) => callback(status));
+    return () => ipcRenderer.removeAllListeners('hey-jarvis:status');
+  },
+  onHeyJarvisError: (callback: (error: string) => void) => {
+    ipcRenderer.on('hey-jarvis:error', (_event, error) => callback(error));
+    return () => ipcRenderer.removeAllListeners('hey-jarvis:error');
+  },
+  setWakeWordEnabled: (enabled: boolean) => {
+    ipcRenderer.send('hey-jarvis:set-enabled', enabled);
+  },
+  setWakeWordSensitivity: (sensitivity: number) => {
+    ipcRenderer.send('hey-jarvis:set-sensitivity', sensitivity);
+  },
+  setWakeWordMicInUse: (inUse: boolean) => {
+    ipcRenderer.send('hey-jarvis:mic-in-use', inUse);
+  },
 });

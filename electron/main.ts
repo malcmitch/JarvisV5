@@ -17,6 +17,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { spawn, ChildProcess } from 'child_process';
 import { networkInterfaces } from 'os';
+import { WakeWordService } from './wake-word';
 
 const isDev = !app.isPackaged;
 const PORT = 3000;
@@ -91,6 +92,7 @@ let mainWindow: BrowserWindow | null = null;
 let desktopVisualWindow: BrowserWindow | null = null;
 let desktopHitboxWindow: BrowserWindow | null = null;
 let nextServer: ChildProcess | null = null;
+let wakeWordService: WakeWordService | null = null;
 // Set to true only after the Next.js server is confirmed ready and the first
 // window has been created. Guards activate/reopen handlers from firing early.
 let appReady = false;
@@ -760,6 +762,59 @@ app.whenReady().then(async () => {
   }
 
   appReady = true;
+
+  wakeWordService = new WakeWordService();
+  wakeWordService!.setCallbacks(
+    () => {
+      console.log('[WakeWord] Jarvis detected!');
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('hey-jarvis:detected');
+      }
+
+      if (desktopModeEnabled) {
+        mainWindow?.show();
+        mainWindow?.focus();
+      }
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('hey-jarvis:status', {
+          enabled: wakeWordService!.enabled,
+          listening: wakeWordService!.listening,
+        });
+      }
+    },
+    (error: string) => {
+      console.error('[WakeWord] Error:', error);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('hey-jarvis:error', error);
+      }
+    }
+  );
+
+  // Wake word will be started by the renderer via IPC when settings load
+
+  ipcMain.on('hey-jarvis:set-enabled', (_event, enabled: boolean) => {
+    if (enabled) {
+      wakeWordService!.start();
+    } else {
+      wakeWordService!.stop();
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('hey-jarvis:status', {
+        enabled: wakeWordService!.enabled,
+        listening: wakeWordService!.listening,
+      });
+    }
+  });
+
+  ipcMain.on('hey-jarvis:set-sensitivity', (_event, sensitivity: number) => {
+    wakeWordService!.setSensitivity(sensitivity);
+  });
+
+  ipcMain.on('hey-jarvis:mic-in-use', (_event, inUse: boolean) => {
+    wakeWordService!.setMicInUse(inUse);
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -779,6 +834,7 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  wakeWordService?.stop();
   nextServer?.kill();
   httpsServer?.close();
 });
