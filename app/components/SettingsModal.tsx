@@ -15,7 +15,7 @@ interface SettingsModalProps {
 
 export type JarvisTheme = 'arc-reactor' | 'midnight' | 'crimson' | 'matrix';
 export type JarvisGrid = 'off' | 'small' | 'medium' | 'large';
-export type JarvisVisualizer = 'frequency-ring' | 'arc-reactor' | 'sphere-nodes';
+export type JarvisVisualizer = 'frequency-ring' | 'arc-reactor' | 'sphere-nodes' | 'quarter-rings' | 'original';
 export type JarvisLogo = 'logo' | 'logo2';
 export type JarvisPosition = 'center' | 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
 
@@ -48,6 +48,16 @@ const VISUALIZERS: { id: JarvisVisualizer; name: string; desc: string }[] = [
     id: 'sphere-nodes',
     name: 'Sphere Nodes',
     desc: '3D orbiting nodes + FFT glitch; logo built from particles',
+  },
+  {
+    id: 'quarter-rings',
+    name: 'Quarter Rings',
+    desc: 'Sporadic quarter-arc rings orbiting the logo with oscillating spin',
+  },
+  {
+    id: 'original',
+    name: 'Original',
+    desc: 'Multi-layer HUD — tick rings, bump-outs, slot rings, yellow pendulum arc, sweep hand',
   },
 ];
 

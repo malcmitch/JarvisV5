@@ -19,7 +19,7 @@ import { TVWidget } from './widgets/TVWidget';
 import { PrinterWidget } from './widgets/PrinterWidget';
 import { WeatherHomeWidget } from './widgets/WeatherHomeWidget';
 import { HADeviceWidget } from './widgets/HADeviceWidget';
-import { getCachedSetting } from '../../lib/serverSettings';
+import { getCachedSetting, loadServerSettings } from '../../lib/serverSettings';
 
 type WidgetType = 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image' | 'terminal' | 'tv' | 'printer' | 'weather-home' | 'ha-device' | 'ha-toggle';
 
@@ -337,42 +337,56 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
 function HAPowerButtonFloater({
   initialX, initialY, config, onClose,
 }: { initialX: number; initialY: number; config?: Record<string, unknown>; onClose: () => void }) {
-  const [isOn, setIsOn]     = useState(false);
+  const [isOn, setIsOn]       = useState(false);
   const [loading, setLoading] = useState(true);
-  const [entity, setEntity]  = useState<{ id: string; name: string } | null>(null);
+  const [entity, setEntity]   = useState<{ id: string } | null>(null);
+  // Store credentials in state so toggle is always reliable (not dependent on cache at click time)
+  const [haUrl, setHaUrl]     = useState('');
+  const [haToken, setHaToken] = useState('');
   const constraintsRef = useRef<HTMLDivElement>(null);
 
-  const nameFilter  = config?.name       as string | undefined;
-  const entityIds   = config?.entity_ids as string[] | undefined;
-  const domain      = config?.domain     as string | undefined;
-
-  const getCreds = () => {
-    return { url: getCachedSetting('jarvis_ha_url'), token: getCachedSetting('jarvis_ha_token') };
-  };
+  const nameFilter = config?.name       as string | undefined;
+  const entityIds  = config?.entity_ids as string[] | undefined;
+  const domain     = config?.domain     as string | undefined;
+  // Label: prefer explicit label > name_filter (what the user called it) > HA friendly_name fallback
+  const configLabel = (config?.label as string | undefined) ?? nameFilter;
+  const [displayName, setDisplayName] = useState(configLabel ?? '…');
 
   useEffect(() => {
-    const { url, token } = getCreds();
-    if (!url || !token) { setLoading(false); return; }
-    fetch(`/api/home-assistant?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token)}&path=/api/states`)
-      .then(r => r.json())
-      .then((all: Array<{ entity_id: string; state: string; attributes: Record<string, unknown> }>) => {
-        let found = null;
+    (async () => {
+      // Always ensure server settings are loaded before reading credentials —
+      // the cache may be cold if ElevenLabs added this widget before the page
+      // finished its own loadServerSettings() call.
+      let url   = getCachedSetting('jarvis_ha_url');
+      let token = getCachedSetting('jarvis_ha_token');
+      if (!url || !token) {
+        const s = await loadServerSettings();
+        url   = s.jarvis_ha_url   ?? '';
+        token = s.jarvis_ha_token ?? '';
+      }
+      if (!url || !token) { setLoading(false); return; }
+      setHaUrl(url);
+      setHaToken(token);
+
+      try {
+        const r = await fetch(`/api/home-assistant?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token)}&path=/api/states`);
+        const all = await r.json() as Array<{ entity_id: string; state: string; attributes: Record<string, unknown> }>;
+        let found: typeof all[0] | null = null;
         if (entityIds?.length) {
           found = all.find(e => entityIds.includes(e.entity_id)) ?? null;
         } else if (nameFilter) {
           found = all.find(e =>
             (e.attributes.friendly_name as string ?? '').toLowerCase().includes(nameFilter.toLowerCase())
           ) ?? null;
-          // Fallback: search switch.* entities if domain=light found nothing
-          if (!found && domain === 'light') {
+          // Alias: "Light N" smart plugs may live in switch domain
+          if (!found) {
             found = all.find(e =>
               e.entity_id.startsWith('switch.') &&
-              (e.attributes.friendly_name as string ?? '').toLowerCase().includes('light')
+              (e.attributes.friendly_name as string ?? '').toLowerCase().includes(nameFilter.toLowerCase())
             ) ?? null;
           }
         } else if (domain) {
-          const direct = all.find(e => e.entity_id.startsWith(domain + '.')) ?? null;
-          found = direct;
+          found = all.find(e => e.entity_id.startsWith(domain + '.')) ?? null;
           if (!found && domain === 'light') {
             found = all.find(e =>
               e.entity_id.startsWith('switch.') &&
@@ -381,25 +395,29 @@ function HAPowerButtonFloater({
           }
         }
         if (found) {
-          setEntity({ id: found.entity_id, name: (found.attributes.friendly_name as string) ?? found.entity_id });
-          setIsOn(['on','playing','open','unlocked'].includes(found.state));
+          setEntity({ id: found.entity_id });
+          setIsOn(['on', 'playing', 'open', 'unlocked'].includes(found.state));
+          if (!configLabel) {
+            setDisplayName((found.attributes.friendly_name as string) ?? found.entity_id);
+          }
         }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+      } catch { /* swallow — shows NOT FOUND */ }
+      setLoading(false);
+    })();
   }, [nameFilter, domain, entityIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = async () => {
-    if (!entity) return;
-    const { url, token } = getCreds();
-    const d = entity.id.split('.')[0];
+    if (!entity || !haUrl || !haToken) return;
+    const d    = entity.id.split('.')[0];
     const next = !isOn;
     setIsOn(next);
-    await fetch('/api/home-assistant', {
+    const res = await fetch('/api/home-assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, token, domain: d, service: next ? 'turn_on' : 'turn_off', serviceData: { entity_id: entity.id } }),
+      body: JSON.stringify({ url: haUrl, token: haToken, domain: d, service: next ? 'turn_on' : 'turn_off', serviceData: { entity_id: entity.id } }),
     });
+    // Roll back optimistic update if the call failed
+    if (!res.ok) setIsOn(!next);
   };
 
   return (
@@ -463,7 +481,7 @@ function HAPowerButtonFloater({
           className="font-mono text-[9px] tracking-widest uppercase max-w-[80px] text-center truncate transition-colors duration-300"
           style={{ color: isOn ? 'rgba(34,211,238,0.9)' : 'rgba(255,255,255,0.3)' }}
         >
-          {entity ? entity.name : (loading ? '…' : 'NOT FOUND')}
+          {loading ? '…' : (!entity ? 'NOT FOUND' : displayName)}
         </span>
       </motion.div>
     </div>

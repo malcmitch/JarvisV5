@@ -11,6 +11,8 @@ import { XrayWidget } from './XrayWidget';
 import { CameraWidget } from './CameraWidget';
 import { ArcReactorVisualizer } from './visualizers/ArcReactorVisualizer';
 import { SphereNodesVisualizer } from './visualizers/SphereNodesVisualizer';
+import { QuarterRingsVisualizer } from './visualizers/QuarterRingsVisualizer';
+import { OriginalVisualizer } from './visualizers/OriginalVisualizer';
 import { PhotoWidget, PhotoEntry } from './PhotoWidget';
 import { sfx } from '../lib/sfx';
 import { installErrorInterceptors, emitError } from '../lib/errorBus';
@@ -114,13 +116,25 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       console.log('ElevenLabs connected');
       setStatus('active');
     },
-    onDisconnect: () => {
-      console.log('ElevenLabs disconnected');
-      if (statusRef.current !== 'idle') setStatus('idle');
+    onDisconnect: (details?: { reason?: string; code?: number; message?: string }) => {
+      const reason = details?.message ?? details?.reason ?? (details?.code != null ? `code ${details.code}` : null);
+      console.log('ElevenLabs disconnected', details ?? '');
+      if (reason && statusRef.current !== 'idle') {
+        setStatus('error');
+        setLastError(`Disconnected: ${reason}`);
+        emitError('elevenlabs', `Disconnected: ${reason}`);
+      } else if (statusRef.current !== 'idle') {
+        setStatus('idle');
+      }
     },
     onError: (error) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const e = error as any;
+      const msg = e instanceof Error ? e.message : (typeof e === 'string' ? e : JSON.stringify(e));
       console.error('ElevenLabs error:', error);
       setStatus('error');
+      setLastError(msg);
+      emitError('elevenlabs', msg);
     },
   });
 
@@ -1281,6 +1295,26 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
                 fftData={visualFftData}
                 status={visualStatus}
                 logoUrl={`/assets/${settings.logo ?? 'logo'}.png`}
+              />
+            </div>
+          )}
+
+          {/* ── Quarter rings visualizer ── */}
+          {settings.visualizer === 'quarter-rings' && (
+            <div className="absolute inset-0 pointer-events-none">
+              <QuarterRingsVisualizer
+                fftData={visualFftData}
+                status={visualStatus}
+              />
+            </div>
+          )}
+
+          {/* ── Original HUD visualizer ── */}
+          {settings.visualizer === 'original' && (
+            <div className="absolute inset-0 pointer-events-none">
+              <OriginalVisualizer
+                fftData={visualFftData}
+                status={visualStatus}
               />
             </div>
           )}

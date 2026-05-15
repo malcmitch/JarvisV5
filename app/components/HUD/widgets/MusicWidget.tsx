@@ -90,13 +90,11 @@ async function acquireAudioStream(): Promise<MediaStream | null> {
           audio: {
             // @ts-expect-error Electron/Chromium non-standard fields
             chromeMediaSource: 'desktop',
-            // @ts-expect-error
             chromeMediaSourceId: sourceId,
           },
           video: {
-            // @ts-expect-error
+            // @ts-expect-error Electron/Chromium non-standard fields
             chromeMediaSource: 'desktop',
-            // @ts-expect-error
             chromeMediaSourceId: sourceId,
             width: 1, height: 1,
           },
@@ -131,7 +129,7 @@ function useFFTCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
     let audioCtx: AudioContext | null = null;
     let source: MediaStreamAudioSourceNode | null = null;
     let analyser: AnalyserNode | null = null;
-    let fftData: Uint8Array | null = null;
+    let fftData: Uint8Array<ArrayBuffer> | null = null;
     let rafId = 0;
     let stream: MediaStream | null = null;
     let stopped = false;

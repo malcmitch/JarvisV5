@@ -1,3 +1,5 @@
+import { getCachedSetting, loadServerSettings } from './serverSettings';
+
 /** Paths from Settings → System — sent with shell / computer-use API calls. */
 export function readToolkitOverrides(): {
   shellPathOverride?: string;
@@ -1180,8 +1182,13 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
 
       if (page === 'home-assistant') {
         try {
-          const haUrl   = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ha_url')   ?? '' : '';
-          const haToken = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ha_token') ?? '' : '';
+          let haUrl   = getCachedSetting('jarvis_ha_url');
+          let haToken = getCachedSetting('jarvis_ha_token');
+          if (!haUrl || !haToken) {
+            const s = await loadServerSettings();
+            haUrl   = s.jarvis_ha_url   ?? '';
+            haToken = s.jarvis_ha_token ?? '';
+          }
           if (haUrl && haToken) {
             const res = await fetch(`/api/home-assistant?url=${encodeURIComponent(haUrl)}&token=${encodeURIComponent(haToken)}&path=/api/states`);
             if (res.ok) {
@@ -1593,15 +1600,24 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       const source       = args.source       as string | undefined;
       const domain       = args.domain       as string | undefined;
 
-      const haUrl   = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ha_url')   ?? '' : '';
-      const haToken = typeof window !== 'undefined' ? localStorage.getItem('jarvis_ha_token') ?? '' : '';
+      // Use getCachedSetting (cache → localStorage). If both are empty the server
+      // settings cache is cold — load it now so mobile/tablet clients work too.
+      let haUrl   = getCachedSetting('jarvis_ha_url');
+      let haToken = getCachedSetting('jarvis_ha_token');
+      if (!haUrl || !haToken) {
+        const s = await loadServerSettings();
+        haUrl   = s.jarvis_ha_url   ?? '';
+        haToken = s.jarvis_ha_token ?? '';
+      }
 
       if (!haUrl || !haToken) {
         return { success: false, message: 'Home Assistant is not configured. Navigate to the Home Assistant page and connect first.' };
       }
 
-      // Navigate to the HA page so user can see changes
-      window.dispatchEvent(new CustomEvent('jarvis:navigate', { detail: { page: 'home-assistant' } }));
+      // Navigate to the HA page so user can see changes (skip for list_devices — it's a background lookup)
+      if (command !== 'list_devices') {
+        window.dispatchEvent(new CustomEvent('jarvis:navigate', { detail: { page: 'home-assistant' } }));
+      }
 
       // list_devices: return all entity states
       if (command === 'list_devices') {
@@ -1903,15 +1919,15 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         'Add or remove a live widget on the Jarvis home screen dashboard. ' +
         'Use "add" to place a widget, "remove" to close it. ' +
         'Widget types: ' +
-        '"tv" = TV remote control panel (power, source selection, volume). ' +
-        '"printer" = 3D printer live status card with progress and controls — use printer_name to target a specific printer. ' +
+        '"tv" = TV remote control panel. ' +
+        '"printer" = 3D printer live status card. ' +
         '"weather-home" = current weather conditions. ' +
-        '"ha-device" = Home Assistant device card — shows multiple devices, use entity_ids or domain. ' +
-        '"ha-toggle" = a single bare glowing power button for ONE specific device — use name_filter to target it (e.g. name_filter="Light 1"). This is the best choice when the user asks to add a button, switch, or toggle for a specific device. ' +
-        'Examples: "add the TV to the dashboard" → widget_type=tv, action=add. ' +
-        '"add a button for Light 1" → widget_type=ha-toggle, name_filter="Light 1", action=add. ' +
-        '"add my lights to the dashboard" → widget_type=ha-device, domain=light, action=add. ' +
-        '"remove the weather widget" → widget_type=weather-home, action=remove.',
+        '"ha-device" = Home Assistant device card showing multiple devices. ' +
+        '"ha-toggle" = a single bare glowing power button for ONE specific device. ' +
+        'IMPORTANT — when adding an "ha-toggle": ALWAYS call home_assistant_command with command=list_devices FIRST to get the real entity IDs and friendly names. Then pass entity_ids=[the exact entity_id] and label=the short human name (e.g. "Light 2") to add_home_widget. This ensures the correct device is targeted and the button shows a clean label. ' +
+        'Examples: "add a button for Light 1" → 1) list_devices to find "switch.light_1", 2) ha-toggle, entity_ids=["switch.light_1"], label="Light 1". ' +
+        '"add my lights to the dashboard" → ha-device, domain=light. ' +
+        '"remove the weather widget" → weather-home, action=remove.',
       parameters: {
         type: 'object',
         properties: {
@@ -1944,7 +1960,11 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           },
           name_filter: {
             type: 'string',
-            description: 'For widget_type=ha-device: fuzzy name filter — shows devices whose friendly name contains this string (e.g. "light 1", "bedroom"). Use this when adding a specific named device like "Light 1".',
+            description: 'For widget_type=ha-device or ha-toggle: fuzzy name filter. For ha-toggle prefer entity_ids after calling list_devices.',
+          },
+          label: {
+            type: 'string',
+            description: 'For widget_type=ha-toggle: short display name shown under the power button (e.g. "Light 2"). Always set this to the clean human name.',
           },
         },
         required: ['action', 'widget_type'],
@@ -1956,14 +1976,23 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       const title       = args.title       as string | undefined;
       const printerName = args.printer_name as string | undefined;
       const domain      = args.domain      as string | undefined;
-      const entityIds   = args.entity_ids  as string[] | undefined;
       const nameFilter  = args.name_filter as string | undefined;
+      const label       = args.label       as string | undefined;
+
+      // entity_ids may be a proper array (OpenAI) or a comma-separated string (ElevenLabs)
+      const rawEntityIds = args.entity_ids;
+      const resolvedEntityIds: string[] | undefined =
+        Array.isArray(rawEntityIds) ? rawEntityIds :
+        typeof rawEntityIds === 'string' && rawEntityIds.trim()
+          ? rawEntityIds.split(',').map(s => s.trim()).filter(Boolean)
+          : undefined;
 
       const widgetConfig: Record<string, unknown> = {};
-      if (printerName) widgetConfig.printer_name = printerName;
-      if (domain)      widgetConfig.domain = domain;
-      if (entityIds?.length) widgetConfig.entity_ids = entityIds;
-      if (nameFilter)  widgetConfig.name = nameFilter;
+      if (printerName)              widgetConfig.printer_name = printerName;
+      if (domain)                   widgetConfig.domain = domain;
+      if (resolvedEntityIds?.length) widgetConfig.entity_ids = resolvedEntityIds;
+      if (nameFilter)               widgetConfig.name = nameFilter;
+      if (label)                    widgetConfig.label = label;
 
       if (action === 'add') {
         window.dispatchEvent(new CustomEvent('jarvis:hud', {
