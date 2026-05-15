@@ -19,7 +19,7 @@ export type JarvisVisualizer = 'frequency-ring' | 'arc-reactor' | 'sphere-nodes'
 export type JarvisLogo = 'logo' | 'logo2';
 export type JarvisPosition = 'center' | 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
 
-export type RealtimeModel = 'gpt-realtime-2' | 'gpt-realtime-1.5' | 'gpt-realtime-mini';
+export type RealtimeModel = 'gpt-realtime-2' | 'gpt-realtime-mini';
 
 export interface JarvisSettings {
   apiMode: 'openai' | 'elevenlabs';
@@ -222,11 +222,10 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                   <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Realtime Model</label>
                   <div className="grid grid-cols-3 gap-2">
                     {([
-                      { id: 'gpt-realtime-2',    label: 'Realtime 2',    desc: 'Reasoning' },
-                      { id: 'gpt-realtime-1.5',  label: 'Realtime 1.5',  desc: 'Best voice' },
+                      { id: 'gpt-realtime-2',    label: 'Realtime 2',    desc: 'Latest' },
                       { id: 'gpt-realtime-mini', label: 'Realtime Mini', desc: 'Cost-efficient' },
                     ] as { id: RealtimeModel; label: string; desc: string }[]).map((m) => {
-                      const active = (settings.realtimeModel ?? 'gpt-realtime-1.5') === m.id;
+                      const active = (settings.realtimeModel ?? 'gpt-realtime-2') === m.id;
                       return (
                         <button
                           key={m.id}
