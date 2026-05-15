@@ -694,7 +694,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       }
 
       console.log(
-        `%c[Jarvis] startRealtime() called at ${new Date().toLocaleTimeString()} — model: ${currentSettings.realtimeModel ?? 'gpt-realtime'}`,
+        `%c[Jarvis] startRealtime() called at ${new Date().toLocaleTimeString()} — model: ${currentSettings.realtimeModel ?? 'gpt-realtime-2'}`,
         'background:#0d2137;color:#4fc3f7;font-weight:bold;padding:2px 6px;border-radius:3px'
       );
 
@@ -755,18 +755,18 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const model = currentSettings.realtimeModel ?? 'gpt-realtime';
+      const model = currentSettings.realtimeModel ?? 'gpt-realtime-2';
 
-      const url = new URL('https://api.openai.com/v1/realtime');
-      url.searchParams.set('model', model);
-      
-      const response = await fetch(url, {
+      const fd = new FormData();
+      fd.set('sdp', offer.sdp ?? '');
+      fd.set('session', JSON.stringify({ type: 'realtime', model, voice: currentSettings.voice ?? 'echo' }));
+
+      const response = await fetch('https://api.openai.com/v1/realtime/calls', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${currentSettings.apiKey}`,
-          'Content-Type': 'application/sdp',
         },
-        body: offer.sdp
+        body: fd,
       });
 
       if (!response.ok) {
