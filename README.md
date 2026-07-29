@@ -19,10 +19,18 @@ Both modes support custom system instructions so you can shape Jarvis's personal
 ### Sci-Fi HUD Interface
 The UI is a fully animated heads-up display inspired by the Iron Man films:
 - Animated rotating rings and arc reactor visuals
-- Four visual themes: **Arc Reactor**, **Midnight**, **Crimson**, **Matrix**
+- Five visual themes: **Arc Reactor**, **Midnight**, **Crimson**, **Matrix**, and **Custom** (pick any accent color)
 - Grid overlay and repositionable UI elements
 - Intro boot animation on first launch per session
 - Alternate audio visualizers built with Three.js and React Three Fiber
+- **Arc-reactor radial navigation** — the reactor button (bottom-left) blooms a full-screen radial menu with every page, plus lock / ambient / settings shortcuts
+- **Command palette** — `⌘K` / `Ctrl+K` fuzzy-searches pages, widgets, and system actions
+- **Ambient standby mode** — dims to a full-screen clock after an idle timeout (or on request); any input wakes it
+- **Notification system** — unified HUD-styled toasts for timers, reminders, and layout events
+- **USB touch-screen support (macOS)** — plug in a USB IR touch film/frame (e.g. ILITEK) and the desktop app reads the raw HID touch reports and turns them into taps and drags on the Jarvis window, even though macOS has no native touchscreen support. Auto-detects plug/unplug with a toast notification; may require a one-time Input Monitoring grant in System Settings
+
+### PIN Lock Screen
+An optional futuristic lock (Settings → Security): the screen blurs behind a large lock glyph inside a segmented reactor ring, with number bubbles floating on tether lines around it. Drag a bubble into the ring to enter that digit — the lock flashes the number and one of four PIN dots fills. A wrong PIN shakes the assembly, scatters the bubbles into new positions, and after three failures switches to a red intruder-alert state. Supports auto-lock after inactivity, keyboard entry, and voice lockdown ("Jarvis, lock it down") — but unlocking always requires the PIN on screen. While locked, Jarvis refuses tool calls.
 
 ### HUD Widgets
 The HUD is made up of modular, draggable, and expandable widgets. Jarvis can open, close, and populate them via voice:
@@ -41,6 +49,18 @@ The HUD is made up of modular, draggable, and expandable widgets. Jarvis can ope
 | **Camera** | Live webcam feed |
 | **X-Ray** | Stylizes images with an X-ray effect via OpenAI image editing |
 | **Photo Strip** | Photo capture and display |
+| **Agenda** | Upcoming Google Calendar / iCal events and local tasks |
+| **Tasks** | Today's to-do list (shared with the Calendar page and voice tools) |
+| **Markets** | Live stock ticker with sparklines (Yahoo Finance, no key) |
+| **Headlines** | Rotating world-news headlines (BBC RSS, no key) |
+| **Timers** | Active countdowns and reminders with progress rings |
+| **Weather Radar** | Animated precipitation radar (RainViewer + CARTO tiles, no keys) |
+| **Camera Feed** | Persistent security-cam style webcam widget |
+| **Comms Log** | Live transcript of your conversation with Jarvis |
+| **Host Monitor** | TCP reachability + latency tiles for hosts you care about |
+| **Orbital Tracker** | Live ISS ground track, sunrise/sunset, and moon phase |
+
+Widget positions and sizes are **persisted across restarts**, and you can save/load **named layout presets** ("Jarvis, save this layout as workshop" / "switch to monitoring mode").
 
 ### AI Tools & Abilities
 Jarvis has a full tool registry — things he can actually *do* when asked:
@@ -56,6 +76,12 @@ Jarvis has a full tool registry — things he can actually *do* when asked:
 - **Open URL / Open PDF** — Jarvis can open links and documents on your behalf
 - **HUD Control** — Jarvis can directly manipulate the HUD (open widgets, display text, clear panels)
 - **Date/Time, Geolocation, Battery** — Reads live system data from the browser
+- **Lock Interface** — "Lock it down" engages the PIN lock screen (unlock is on-screen only)
+- **Timers & Reminders** — "Set a timer for 10 minutes", "remind me at 3pm to check the print" — persistent, with on-screen alerts and sound
+- **Briefing** — "Morning briefing" delivers weather, schedule, headlines, and markets in one spoken summary while the matching widgets open
+- **HUD Layouts** — Save and restore named widget arrangements by voice
+- **Theme Control** — "Go crimson" switches the interface theme
+- **Ambient Mode** — "Standby" dims to the ambient clock display
 
 ### Image Context (Drag & Drop)
 Drag and drop images directly into the interface. Jarvis receives them as visual context and can discuss or analyze their contents.
@@ -64,10 +90,11 @@ Drag and drop images directly into the interface. Jarvis receives them as visual
 A full settings modal with multiple tabs:
 - **Jarvis** — API keys, voice model selection, custom system instructions, ElevenLabs agent config
 - **Abilities** — Toggle individual tools on or off
-- **UI** — Theme, HUD layout, and visual options
+- **UI** — Theme (including a custom accent color picker), ambient standby timeout, HUD layout, and visual options
+- **Security** — Enable the PIN lock screen, set/reset your PIN, and configure auto-lock
 - **System** — Diagnostics panel: platform info, shell detection, Python availability, and computer-use binary status
 
-Settings are persisted in `localStorage` — no cloud account required.
+Settings are persisted in `localStorage` — no cloud account required. A **first-run setup wizard** walks new users through picking a voice engine, entering credentials, and setting a weather location.
 
 ---
 

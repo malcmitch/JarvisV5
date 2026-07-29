@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { FUNCTION_REGISTRY, JarvisFunction } from '../lib/functions';
 import { sfx } from '../lib/sfx';
+import { hashPin, verifyPin } from '../lib/pin';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -13,7 +14,7 @@ interface SettingsModalProps {
   dynamicFunctions?: JarvisFunction[];
 }
 
-export type JarvisTheme = 'arc-reactor' | 'midnight' | 'crimson' | 'matrix';
+export type JarvisTheme = 'arc-reactor' | 'midnight' | 'crimson' | 'matrix' | 'custom';
 export type JarvisGrid = 'off' | 'small' | 'medium' | 'large';
 export type JarvisVisualizer = 'frequency-ring' | 'arc-reactor' | 'sphere-nodes' | 'quarter-rings' | 'original';
 export type JarvisLogo = 'logo' | 'logo2';
@@ -41,6 +42,16 @@ export interface JarvisSettings {
   shellPathOverride?: string;
   /** Full path to python.exe for Computer Use. Empty = bundled binary or PATH. */
   pythonPathOverride?: string;
+  /** Lock screen (Settings → Security) */
+  lockEnabled?: boolean;
+  /** Salted hash of the 4-digit PIN — never the raw PIN */
+  lockPinHash?: string;
+  /** Auto-lock after N minutes of inactivity. 0 = never. */
+  lockAutoMinutes?: number;
+  /** Enter ambient standby after N idle minutes. 0 = never. */
+  ambientAutoMinutes?: number;
+  /** Accent hex color used when theme === 'custom' */
+  customAccent?: string;
 }
 
 const VISUALIZERS: { id: JarvisVisualizer; name: string; desc: string }[] = [
@@ -76,13 +87,14 @@ const POSITIONS: { id: JarvisPosition; label: string; icon: string }[] = [
   { id: 'bottom-right', label: 'Bottom Right', icon: '↘' },
 ];
 
-type Tab = 'jarvis' | 'abilities' | 'ui' | 'system';
+type Tab = 'jarvis' | 'abilities' | 'ui' | 'security' | 'system';
 
 const THEMES: { id: JarvisTheme; name: string; accent: string; glow: string }[] = [
   { id: 'arc-reactor', name: 'Arc Reactor', accent: '#22d3ee', glow: 'rgba(34,211,238,0.4)' },
   { id: 'midnight',    name: 'Midnight',    accent: '#a855f7', glow: 'rgba(168,85,247,0.4)'  },
   { id: 'crimson',     name: 'Crimson',     accent: '#ef4444', glow: 'rgba(239,68,68,0.4)'   },
   { id: 'matrix',      name: 'Matrix',      accent: '#22c55e', glow: 'rgba(34,197,94,0.4)'   },
+  { id: 'custom',      name: 'Custom',      accent: '#f59e0b', glow: 'rgba(245,158,11,0.4)'  },
 ];
 
 const GRID_OPTIONS: { id: JarvisGrid; label: string }[] = [
@@ -98,6 +110,11 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagOutput, setDiagOutput] = useState<string | null>(null);
   const [diagError, setDiagError] = useState<string | null>(null);
+  // PIN entry fields for Settings → Security
+  const [pinCurrent, setPinCurrent] = useState('');
+  const [pinNew, setPinNew] = useState('');
+  const [pinConfirm, setPinConfirm] = useState('');
+  const [pinMessage, setPinMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -105,8 +122,37 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
       setActiveTab('jarvis');
       setDiagOutput(null);
       setDiagError(null);
+      setPinCurrent('');
+      setPinNew('');
+      setPinConfirm('');
+      setPinMessage(null);
     }
   }, [isOpen, initialSettings]);
+
+  function applyPin() {
+    const hasExisting = !!settings.lockPinHash;
+    if (hasExisting && !verifyPin(pinCurrent, settings.lockPinHash)) {
+      sfx('error', 0.5);
+      setPinMessage({ ok: false, text: 'Current PIN is incorrect.' });
+      return;
+    }
+    if (!/^\d{4}$/.test(pinNew)) {
+      sfx('error', 0.5);
+      setPinMessage({ ok: false, text: 'PIN must be exactly 4 digits.' });
+      return;
+    }
+    if (pinNew !== pinConfirm) {
+      sfx('error', 0.5);
+      setPinMessage({ ok: false, text: 'PINs do not match.' });
+      return;
+    }
+    sfx('select_confirm', 0.6);
+    setSettings({ ...settings, lockPinHash: hashPin(pinNew) });
+    setPinCurrent('');
+    setPinNew('');
+    setPinConfirm('');
+    setPinMessage({ ok: true, text: hasExisting ? 'PIN updated. Save configuration to apply.' : 'PIN set. Save configuration to apply.' });
+  }
 
   async function runDiagnostics() {
     sfx('click_sfx', 0.5);
@@ -134,6 +180,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
     { id: 'jarvis',    label: 'Jarvis'     },
     { id: 'abilities', label: 'Abilities'  },
     { id: 'ui',        label: 'UI'         },
+    { id: 'security',  label: 'Security'   },
     { id: 'system',    label: 'System'     },
   ];
 
@@ -527,6 +574,116 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
             </div>
           )}
 
+          {/* Security — lock screen + PIN */}
+          {activeTab === 'security' && (
+            <div className="space-y-6">
+              {/* Enable toggle */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Lock Screen</label>
+                  <button
+                    onClick={() => {
+                      if (!settings.lockPinHash && !settings.lockEnabled) {
+                        sfx('error', 0.4);
+                        setPinMessage({ ok: false, text: 'Set a PIN below before enabling the lock.' });
+                        return;
+                      }
+                      sfx('switch_interface', 0.5, 2);
+                      setSettings({ ...settings, lockEnabled: !settings.lockEnabled });
+                    }}
+                    className={`relative w-10 h-5 rounded-full transition-all ${
+                      settings.lockEnabled ? 'bg-cyan-500' : 'bg-cyan-900/50 border border-cyan-500/30'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-all ${
+                        settings.lockEnabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <p className="text-[10px] text-cyan-700 leading-tight">
+                  A futuristic PIN lock — drag the floating number bubbles into the reactor ring to unlock.
+                  Jarvis can lock the interface by voice (&quot;lock it down&quot;) via the Lock Interface ability, but
+                  unlocking always requires the PIN on screen.
+                </p>
+              </div>
+
+              {/* PIN set / reset */}
+              <div className="space-y-3 pt-2 border-t border-cyan-500/10">
+                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">
+                  {settings.lockPinHash ? 'Reset PIN' : 'Set PIN'}
+                </label>
+                {settings.lockPinHash && (
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={pinCurrent}
+                    onChange={(e) => setPinCurrent(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Current PIN"
+                    className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 font-mono text-sm tracking-[0.5em]"
+                  />
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={pinNew}
+                    onChange={(e) => setPinNew(e.target.value.replace(/\D/g, ''))}
+                    placeholder="New 4-digit PIN"
+                    className="bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 font-mono text-sm tracking-[0.5em]"
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={pinConfirm}
+                    onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Confirm PIN"
+                    className="bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 font-mono text-sm tracking-[0.5em]"
+                  />
+                </div>
+                <button
+                  onClick={applyPin}
+                  className="px-4 py-2 text-xs font-bold uppercase tracking-widest rounded border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20"
+                >
+                  {settings.lockPinHash ? 'Update PIN' : 'Set PIN'}
+                </button>
+                {pinMessage && (
+                  <p className={`text-xs font-mono ${pinMessage.ok ? 'text-emerald-400' : 'text-red-400'}`}>{pinMessage.text}</p>
+                )}
+              </div>
+
+              {/* Auto-lock */}
+              <div className="space-y-2 pt-2 border-t border-cyan-500/10">
+                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">
+                  Auto-lock after inactivity
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  {[0, 1, 5, 15, 30].map((m) => {
+                    const active = (settings.lockAutoMinutes ?? 0) === m;
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => { sfx('click_sfx', 0.4); setSettings({ ...settings, lockAutoMinutes: m }); }}
+                        className={`px-2 py-2 border rounded text-xs uppercase tracking-wide transition-all ${
+                          active
+                            ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                            : 'bg-transparent border-cyan-500/20 text-cyan-600 hover:border-cyan-500/50'
+                        }`}
+                      >
+                        {m === 0 ? 'Off' : `${m}m`}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-cyan-700">Requires the lock screen to be enabled with a PIN.</p>
+              </div>
+            </div>
+          )}
+
           {/* System — terminal & computer use diagnostics / overrides */}
           {activeTab === 'system' && (
             <div className="space-y-5">
@@ -631,6 +788,48 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                     );
                   })}
                 </div>
+
+                {/* Custom accent picker */}
+                {settings.theme === 'custom' && (
+                  <div className="flex items-center gap-3 pl-1 pt-1">
+                    <input
+                      type="color"
+                      value={settings.customAccent ?? '#f59e0b'}
+                      onChange={(e) => setSettings({ ...settings, customAccent: e.target.value })}
+                      className="w-9 h-9 rounded cursor-pointer bg-transparent border border-white/20 p-0.5"
+                    />
+                    <div>
+                      <p className="text-xs text-white/70 font-mono">{(settings.customAccent ?? '#f59e0b').toUpperCase()}</p>
+                      <p className="text-[10px] text-cyan-700">Pick any accent color for the interface glow.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Ambient standby */}
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Ambient Standby After Idle</label>
+                <div className="grid grid-cols-5 gap-2">
+                  {[0, 2, 5, 10, 30].map((m) => {
+                    const active = (settings.ambientAutoMinutes ?? 0) === m;
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => { sfx('click_sfx', 0.4); setSettings({ ...settings, ambientAutoMinutes: m }); }}
+                        className={`px-2 py-2 border rounded text-xs uppercase tracking-wide transition-all ${
+                          active
+                            ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                            : 'bg-transparent border-cyan-500/20 text-cyan-600 hover:border-cyan-500/50 hover:text-cyan-400'
+                        }`}
+                      >
+                        {m === 0 ? 'Off' : `${m}m`}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-cyan-700">
+                  After the idle timeout, Jarvis dims to a full-screen standby clock. Any input wakes it.
+                </p>
               </div>
 
               {/* Grid */}

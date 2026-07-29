@@ -5,7 +5,7 @@
   "main": "dist-electron/main.js",
   "private": true,
   "scripts": {
-    "dev": "concurrently -k -n \"NEXT,ELECTRON\" -c \"cyan,green\" \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev": "concurrently -k -n \"NEXT,HTTPS,ELECTRON\" -c \"cyan,magenta,green\" \"next dev\" \"wait-on http://localhost:3000 && node electron-scripts/https-proxy.js\" \"wait-on http://localhost:3000 && electron .\"",
     "serve": "next build && next start -H 0.0.0.0 -p 3000",
     "build:next": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
@@ -25,6 +25,7 @@
     "@types/leaflet": "^1.9.21",
     "leaflet": "^1.9.4",
     "mqtt": "^5.15.1",
+    "node-hid": "^3.4.0",
     "smart-buffer": "^4.2.0"
   },
   "devDependencies": {

@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Don't scan public/ for Tailwind class names — the 3D model files (.glb/.gltf)
+   are hundreds of MB and hang the PostCSS worker (Turbopack panic/timeout). */
+@source not "../public";
+
 :root {
   --background: #000000;
   --foreground: #ffffff;

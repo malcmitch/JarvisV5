@@ -3,14 +3,13 @@ import fs from 'fs';
 import path from 'path';
 
 // Server-side settings file — persists across clients on the same machine.
-// Stored next to the Next.js standalone server so it survives builds.
+// This file holds sensitive credentials (OpenAI key, Home Assistant token,
+// Bambu email), so it MUST live in a per-user, writable location — never inside
+// the distributable app bundle. In packaged builds Electron passes
+// JARVIS_DATA_DIR (the OS per-user app-data dir); in dev we fall back to the
+// project root, which is git-ignored.
 function getSettingsPath(): string {
-  // In production (Electron), write beside the bundled server.
-  // In dev, write to project root so it's easy to inspect.
-  const base =
-    process.env.NODE_ENV === 'production'
-      ? path.join(process.cwd())
-      : path.join(process.cwd());
+  const base = process.env.JARVIS_DATA_DIR || process.cwd();
   return path.join(base, 'jarvis-server-settings.json');
 }
 

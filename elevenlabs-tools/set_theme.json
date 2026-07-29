@@ -1,0 +1,30 @@
+{
+  "type": "client",
+  "name": "set_theme",
+  "description": "Change the Jarvis interface color theme. Use when the user says 'switch to crimson', 'go matrix mode', 'change the theme', or names a color. Map color words: blue/cyan -> arc-reactor, purple -> midnight, red -> crimson, green -> matrix. 'custom' uses the accent color the user picked in Settings > UI.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "theme",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The theme to activate.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["arc-reactor", "midnight", "crimson", "matrix", "custom"],
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

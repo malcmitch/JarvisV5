@@ -49,4 +49,12 @@ contextBridge.exposeInMainWorld('electron', {
   setWakeWordMicInUse: (inUse: boolean) => {
     ipcRenderer.send('hey-jarvis:mic-in-use', inUse);
   },
+  getTouchInputStatus: (): Promise<{ connected: boolean; product?: string; permissionDenied?: boolean }> =>
+    ipcRenderer.invoke('touch-input:get-status'),
+  onTouchInputStatus: (
+    callback: (status: { connected: boolean; product?: string; permissionDenied?: boolean }) => void
+  ) => {
+    ipcRenderer.on('touch-input:status', (_event, status) => callback(status));
+    return () => ipcRenderer.removeAllListeners('touch-input:status');
+  },
 });

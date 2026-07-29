@@ -1,0 +1,18 @@
+{
+  "type": "client",
+  "name": "briefing",
+  "description": "Run a full status briefing. Use when the user says 'morning briefing', 'daily briefing', 'brief me', 'what's the situation', or 'catch me up'. Gathers current weather, today's schedule, top news headlines, and market movers, and opens the matching HUD widgets. Summarize the returned data as one continuous natural spoken briefing - weather first, then schedule, then a 2-sentence news summary, then one sentence on markets. Keep it under 30 seconds of speech.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 15,
+  "parameters": [],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

@@ -1,4 +1,8 @@
 import { getCachedSetting, loadServerSettings } from './serverSettings';
+import {
+  addTimer, cancelTimer, getTimers,
+  addReminder, cancelReminder, getReminders,
+} from './timers';
 
 /** Paths from Settings → System — sent with shell / computer-use API calls. */
 export function readToolkitOverrides(): {
@@ -776,7 +780,10 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       description:
         "Control the HUD widgets displayed on the home screen. Use this when the user asks to open, close, show, hide, or manage widgets. " +
         "Commands: 'open' adds a widget, 'close' removes a widget, 'clear' removes all widgets, 'reset' restores the default layout. " +
-        "Widget names: 'clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image', 'terminal'. " +
+        "Widget names: 'clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image', 'terminal', " +
+        "'agenda' (upcoming calendar events), 'todo' (today's task list), 'stocks' (market ticker), 'headlines' (rotating news), " +
+        "'timer' (countdowns and reminders), 'weather-radar' (animated precipitation map), 'camera-feed' (live webcam), " +
+        "'transcript' (conversation log), 'uptime' (host reachability monitor), 'orbit' (ISS tracker + sun/moon). " +
         "IMPORTANT: The 'map' widget here is a small HUD minimap overlay — it is NOT the full Jarvis Map page. " +
         "If the user asks to 'open the map', 'go to the map page', 'show the map', 'navigate on a map', or wants to fly to a location/draw a route, use map_command instead. " +
         "When opening the 'text' widget, optionally supply text_content and title. " +
@@ -791,7 +798,10 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           },
           widget: {
             type: 'string',
-            enum: ['clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image', 'terminal'],
+            enum: [
+              'clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image', 'terminal',
+              'agenda', 'todo', 'stocks', 'headlines', 'timer', 'weather-radar', 'camera-feed', 'transcript', 'uptime', 'orbit',
+            ],
             description: "The widget to open or close. Required for 'open' and 'close' commands. Ignored for 'clear' and 'reset'. Use 'terminal' to show the error terminal.",
           },
           text_content: {
@@ -1085,12 +1095,16 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       type: 'function',
       name: 'navigate_to_page',
       description:
-        'Navigate Jarvis to a different page. Use for "home", "news", "calendar", "home-assistant", "3d-printers", or "music". ' +
+        'Navigate Jarvis to a different page. Use for "home", "news", "calendar", "home-assistant", "3d-printers", "music", "spiderman", "manufacturing", "webshooter", or "round-display". ' +
         '"news" opens the live news feed with streaming video and market data. ' +
         '"calendar" opens the calendar and task planner. ' +
         '"home-assistant" opens the smart home control panel for lights, switches, climate, and more. ' +
         '"3d-printers" opens the 3D printer dashboard to monitor and control Bambu Lab printers. ' +
         '"music" opens the full-screen music player with the spinning record visualization. ' +
+        '"spiderman" opens the Spider-Man suit armory — a 3D holographic carousel of Spider-Man suits the user can browse and inspect. Use when the user mentions Spider-Man, suits, or the armory. ' +
+        '"manufacturing" opens the fabrication bay where the user drags a 3D component onto a printer, laser, or CNC machine to build it. Use when the user mentions manufacturing, fabrication, or building a part. ' +
+        '"webshooter" opens the web-shooter designer lab — a holographic web-shooter base where the user designs taser web, web fluid, web grenade, and acid web cartridges and loads them onto the shooter. Use when the user mentions web shooters, web fluid, cartridges, or the web lab. ' +
+        '"round-display" switches to a full-screen circular Jarvis visualizer optimised for round displays. ' +
         '"home" returns to the main Jarvis home screen. ' +
         'NEVER use this for map or location requests — use map_command instead.',
       parameters: {
@@ -1098,8 +1112,8 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         properties: {
           page: {
             type: 'string',
-            enum: ['home', 'news', 'calendar', 'home-assistant', '3d-printers', 'music'],
-            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner. "home-assistant" = smart home control panel. "3d-printers" = Bambu Lab 3D printer dashboard. "music" = full-screen music player.',
+            enum: ['home', 'news', 'calendar', 'home-assistant', '3d-printers', 'music', 'spiderman', 'manufacturing', 'webshooter', 'round-display'],
+            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner. "home-assistant" = smart home control panel. "3d-printers" = Bambu Lab 3D printer dashboard. "music" = full-screen music player. "spiderman" = Spider-Man suit armory with a 3D holographic suit carousel. "manufacturing" = fabrication bay for building 3D components on printers/lasers/CNC. "webshooter" = web-shooter designer lab for building taser web / web fluid / web grenade / acid web cartridges. "round-display" = full-screen circular visualizer for round displays.',
           },
         },
         required: ['page'],
@@ -1265,7 +1279,87 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         };
       }
 
+      if (page === 'spiderman') {
+        return {
+          success: true,
+          navigated_to: page,
+          instruction:
+            'The Spider-Man suit armory is now open — the suits are filing onto their holographic podiums. Available suits: Homemade Suit (Homecoming), Tech Suit (Homecoming), Iron Spider (Infinity War), Amazing Suit (TASM 2), and Symbiote Suit (Spider-Man 2 PS5). The user can swipe through them and tap one to inspect and spin it. Briefly announce the armory is ready.',
+        };
+      }
+
       return { success: true, navigated_to: page };
+    },
+  },
+  {
+    name: 'open_3d_model',
+    label: 'Open 3D Model',
+    description: 'Display a 3D model in the center of the round display',
+    tool: {
+      type: 'function',
+      name: 'open_3d_model',
+      description:
+        'Open and display a 3D model (GLTF/GLB) in the center of the Jarvis round display. ' +
+        'The model will spin and fill the inner circle with the name displayed beneath it. ' +
+        'Use when the user asks to "show", "open", "display", or "load" a 3D model by name. ' +
+        'Call navigate_to_page with "round-display" first if not already there.',
+      parameters: {
+        type: 'object',
+        properties: {
+          model_name: {
+            type: 'string',
+            description: 'The filename of the model in the /models/ folder, without extension (e.g. "Dum-E" for Dum-E.gltf).',
+          },
+          display_name: {
+            type: 'string',
+            description: 'The human-readable name to display on screen. Defaults to model_name if not provided.',
+          },
+        },
+        required: ['model_name'],
+      },
+    },
+    handler: async (args) => {
+      const requested = (args.model_name as string ?? '').trim();
+      const displayName = ((args.display_name as string | undefined) ?? requested).trim();
+      if (!requested) return { error: 'No model name specified.' };
+
+      // Fetch available models from the server
+      let available: { file: string; name: string }[] = [];
+      try {
+        const res = await fetch('/api/list-models');
+        const data = await res.json() as { models: { file: string; name: string }[] };
+        available = data.models;
+      } catch { /* swallow */ }
+
+      if (available.length === 0) {
+        return { error: 'No 3D models found in the models folder.' };
+      }
+
+      // Fuzzy match: case-insensitive substring search
+      const match = available.find(
+        m => m.name.toLowerCase() === requested.toLowerCase()
+      ) ?? available.find(
+        m => m.name.toLowerCase().includes(requested.toLowerCase()) ||
+             requested.toLowerCase().includes(m.name.toLowerCase())
+      );
+
+      if (!match) {
+        return {
+          error: `No model matching "${requested}" found.`,
+          available_models: available.map(m => m.name),
+          instruction: `Tell the user the model "${requested}" was not found and list the available models: ${available.map(m => m.name).join(', ')}.`,
+        };
+      }
+
+      window.dispatchEvent(new CustomEvent('jarvis:open-model', {
+        detail: { path: `/models/${match.file}`, name: displayName || match.name },
+      }));
+
+      return {
+        success: true,
+        model: match.name,
+        instruction: `The 3D model "${displayName || match.name}" is now displayed, spinning. Briefly acknowledge it.`,
+      };
     },
   },
   {
@@ -1922,6 +2016,16 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         '"tv" = TV remote control panel. ' +
         '"printer" = 3D printer live status card. ' +
         '"weather-home" = current weather conditions. ' +
+        '"weather-radar" = animated precipitation radar map. ' +
+        '"agenda" = upcoming calendar events. ' +
+        '"todo" = today\'s task list. ' +
+        '"stocks" = live market ticker (optionally pass symbols like "AAPL,TSLA"). ' +
+        '"headlines" = rotating world news headlines. ' +
+        '"timer" = active countdowns and reminders. ' +
+        '"camera-feed" = live webcam view. ' +
+        '"transcript" = live conversation log. ' +
+        '"uptime" = host reachability monitor (optionally pass hosts like "192.168.1.1:80,github.com:443"). ' +
+        '"orbit" = ISS tracker with sunrise/sunset and moon phase. ' +
         '"ha-device" = Home Assistant device card showing multiple devices. ' +
         '"ha-toggle" = a single bare glowing power button for ONE specific device. ' +
         'IMPORTANT — when adding an "ha-toggle": ALWAYS call home_assistant_command with command=list_devices FIRST to get the real entity IDs and friendly names. Then pass entity_ids=[the exact entity_id] and label=the short human name (e.g. "Light 2") to add_home_widget. This ensures the correct device is targeted and the button shows a clean label. ' +
@@ -1938,7 +2042,10 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           },
           widget_type: {
             type: 'string',
-            enum: ['tv', 'printer', 'weather-home', 'ha-device', 'ha-toggle'],
+            enum: [
+              'tv', 'printer', 'weather-home', 'weather-radar', 'agenda', 'todo', 'stocks', 'headlines',
+              'timer', 'camera-feed', 'transcript', 'uptime', 'orbit', 'ha-device', 'ha-toggle',
+            ],
             description: 'Which widget to add or remove. Use "ha-toggle" for a single glowing power button for one specific device.',
           },
           title: {
@@ -1965,6 +2072,14 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           label: {
             type: 'string',
             description: 'For widget_type=ha-toggle: short display name shown under the power button (e.g. "Light 2"). Always set this to the clean human name.',
+          },
+          symbols: {
+            type: 'string',
+            description: 'For widget_type=stocks: comma-separated ticker symbols to track, e.g. "AAPL,TSLA,BTC-USD". Omit for a sensible default list.',
+          },
+          hosts: {
+            type: 'string',
+            description: 'For widget_type=uptime: comma-separated host:port targets to monitor, e.g. "192.168.1.1:80,github.com:443". Omit for defaults.',
           },
         },
         required: ['action', 'widget_type'],
@@ -1993,6 +2108,8 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       if (resolvedEntityIds?.length) widgetConfig.entity_ids = resolvedEntityIds;
       if (nameFilter)               widgetConfig.name = nameFilter;
       if (label)                    widgetConfig.label = label;
+      if (typeof args.symbols === 'string' && args.symbols.trim()) widgetConfig.symbols = args.symbols.trim();
+      if (typeof args.hosts === 'string' && args.hosts.trim())     widgetConfig.hosts = args.hosts.trim();
 
       if (action === 'add') {
         window.dispatchEvent(new CustomEvent('jarvis:hud', {
@@ -2007,6 +2124,9 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         const widgetNames: Record<string, string> = {
           'tv': 'TV Control', 'printer': 'Printer Status',
           'weather-home': 'Weather', 'ha-device': 'Device Controls', 'ha-toggle': 'Power Button',
+          'weather-radar': 'Weather Radar', 'agenda': 'Agenda', 'todo': 'Tasks', 'stocks': 'Markets',
+          'headlines': 'Headlines', 'timer': 'Timers', 'camera-feed': 'Camera Feed',
+          'transcript': 'Comms Log', 'uptime': 'Host Monitor', 'orbit': 'Orbital Tracker',
         };
         const label = title ?? widgetNames[widgetType] ?? widgetType;
         return {
@@ -2067,6 +2187,398 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       } catch (err) {
         return { error: String(err) };
       }
+    },
+  },
+  {
+    name: 'lock_interface',
+    label: 'Lock Interface',
+    description: 'Let Jarvis lock the interface behind the PIN lock screen',
+    tool: {
+      type: 'function',
+      name: 'lock_interface',
+      description:
+        'Lock the Jarvis interface behind the PIN lock screen. ' +
+        'Use when the user says "lock it down", "lock the interface", "security lockdown", "lock up", or similar. ' +
+        'The user must have enabled the lock and set a PIN in Settings → Security first. ' +
+        'Unlocking requires the PIN on screen — it can NOT be done by voice.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+    handler: () => {
+      try {
+        const raw = localStorage.getItem('jarvis_settings');
+        const s = raw ? JSON.parse(raw) as { lockEnabled?: boolean; lockPinHash?: string } : {};
+        if (!s.lockEnabled || !s.lockPinHash) {
+          return {
+            success: false,
+            message: 'The lock screen is not configured. Ask the user to enable it and set a PIN in Settings → Security.',
+          };
+        }
+      } catch { /* fall through and attempt anyway */ }
+      window.dispatchEvent(new CustomEvent('jarvis:lock'));
+      return { success: true, message: 'Interface locked. The PIN is required on screen to unlock.' };
+    },
+  },
+  {
+    name: 'set_timer',
+    label: 'Timers',
+    description: 'Let Jarvis start, cancel, and list countdown timers',
+    tool: {
+      type: 'function',
+      name: 'set_timer',
+      description:
+        'Manage countdown timers. Use when the user says "set a timer for 10 minutes", "cancel the timer", or "how long is left on my timer?". ' +
+        'Starting a timer also opens the TIMERS widget on the HUD. When a timer finishes, a notification appears on screen with a sound.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['start', 'cancel', 'list'],
+            description: 'start = begin a new countdown. cancel = stop a running timer. list = report active timers.',
+          },
+          minutes: {
+            type: 'number',
+            description: 'Timer duration in minutes (may be fractional, e.g. 0.5 for 30 seconds). Required for start.',
+          },
+          label: {
+            type: 'string',
+            description: 'Optional short label, e.g. "pasta" or "print check". Also used to match which timer to cancel.',
+          },
+        },
+        required: ['action'],
+      },
+    },
+    handler: (args) => {
+      const action = args.action as string;
+
+      if (action === 'start') {
+        const minutes = Number(args.minutes);
+        if (!minutes || minutes <= 0) return { error: 'A positive number of minutes is required.' };
+        const label = (args.label as string | undefined)?.trim();
+        const timer = addTimer(minutes * 60_000, label ? label.toUpperCase() : `${minutes} MIN TIMER`);
+        window.dispatchEvent(new CustomEvent('jarvis:hud', { detail: { command: 'open', widget: 'timer' } }));
+        return {
+          success: true,
+          ends_at: new Date(timer.endsAt).toLocaleTimeString(),
+          message: `Timer "${timer.label}" started — it will finish at ${new Date(timer.endsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`,
+        };
+      }
+
+      if (action === 'cancel') {
+        const query = (args.label as string | undefined)?.trim();
+        const timers = getTimers();
+        if (timers.length === 0) return { success: false, message: 'There are no active timers.' };
+        const removed = cancelTimer(query || timers[0].id);
+        return removed
+          ? { success: true, message: 'Timer cancelled.' }
+          : { success: false, message: `No timer matching "${query}" found.` };
+      }
+
+      // list
+      const timers = getTimers();
+      if (timers.length === 0) return { success: true, message: 'No timers are running.' };
+      const summary = timers.map((t) => {
+        const remainMin = Math.max(0, Math.round((t.endsAt - Date.now()) / 60_000));
+        return `${t.label}: about ${remainMin} minute${remainMin === 1 ? '' : 's'} remaining`;
+      }).join('; ');
+      return { success: true, timers: summary, instruction: `Tell the user their timer status: ${summary}` };
+    },
+  },
+  {
+    name: 'set_reminder',
+    label: 'Reminders',
+    description: 'Let Jarvis set reminders that fire an on-screen alert at a specific time',
+    tool: {
+      type: 'function',
+      name: 'set_reminder',
+      description:
+        'Manage reminders that pop an on-screen notification (with sound) at a specific time. ' +
+        'Use for "remind me at 3pm to check the print" or "remind me in 20 minutes to stretch". ' +
+        'Reminders persist across app restarts. Provide EITHER in_minutes OR time (24-hour HH:MM, with optional date).',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['add', 'cancel', 'list'],
+            description: 'add = create a reminder. cancel = remove one by text match. list = report pending reminders.',
+          },
+          text: {
+            type: 'string',
+            description: 'What to remind the user about, e.g. "check the print". Required for add; used to match for cancel.',
+          },
+          in_minutes: {
+            type: 'number',
+            description: 'Fire the reminder this many minutes from now. Use for relative requests ("in 20 minutes").',
+          },
+          time: {
+            type: 'string',
+            description: '24-hour time HH:MM (e.g. "15:00" for 3pm). Use for absolute requests ("at 3pm").',
+          },
+          date: {
+            type: 'string',
+            description: 'Optional ISO date YYYY-MM-DD for the time parameter. Defaults to today (or tomorrow if the time already passed).',
+          },
+        },
+        required: ['action'],
+      },
+    },
+    handler: (args) => {
+      const action = args.action as string;
+
+      if (action === 'add') {
+        const text = (args.text as string | undefined)?.trim();
+        if (!text) return { error: 'Reminder text is required.' };
+
+        let at: number | null = null;
+        const inMinutes = Number(args.in_minutes);
+        if (inMinutes > 0) {
+          at = Date.now() + inMinutes * 60_000;
+        } else if (typeof args.time === 'string' && /^\d{1,2}:\d{2}$/.test(args.time.trim())) {
+          const [h, m] = args.time.trim().split(':').map(Number);
+          const target = new Date();
+          if (typeof args.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.date)) {
+            const [y, mo, d] = args.date.split('-').map(Number);
+            target.setFullYear(y, mo - 1, d);
+          }
+          target.setHours(h, m, 0, 0);
+          // If no explicit date and the time already passed today, assume tomorrow
+          if (!args.date && target.getTime() <= Date.now()) {
+            target.setDate(target.getDate() + 1);
+          }
+          at = target.getTime();
+        }
+
+        if (!at || at <= Date.now()) {
+          return { error: 'Could not determine a valid future time. Provide in_minutes or time (HH:MM).' };
+        }
+
+        addReminder(at, text);
+        window.dispatchEvent(new CustomEvent('jarvis:hud', { detail: { command: 'open', widget: 'timer' } }));
+        const when = new Date(at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+        return { success: true, message: `Reminder set for ${when}: "${text}".` };
+      }
+
+      if (action === 'cancel') {
+        const query = (args.text as string | undefined)?.trim();
+        if (!query) return { error: 'Provide the reminder text to cancel.' };
+        const removed = cancelReminder(query);
+        return removed
+          ? { success: true, message: 'Reminder cancelled.' }
+          : { success: false, message: `No reminder matching "${query}" found.` };
+      }
+
+      // list
+      const reminders = getReminders();
+      if (reminders.length === 0) return { success: true, message: 'No pending reminders.' };
+      const summary = reminders
+        .map((r) => `"${r.text}" at ${new Date(r.at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`)
+        .join('; ');
+      return { success: true, reminders: summary, instruction: `Tell the user their pending reminders: ${summary}` };
+    },
+  },
+  {
+    name: 'hud_layout',
+    label: 'HUD Layouts',
+    description: 'Let Jarvis save, load, and manage named HUD widget layouts (e.g. "workshop mode")',
+    tool: {
+      type: 'function',
+      name: 'hud_layout',
+      description:
+        'Save or restore named HUD widget layout presets. ' +
+        'Use when the user says "save this layout as workshop", "switch to monitoring mode", "load my workshop configuration", or "what layouts do I have?". ' +
+        'Layout names are free-form lowercase strings like "workshop" or "monitoring".',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['save', 'load', 'delete', 'list'],
+            description: 'save = store the current widget arrangement under a name. load = restore a saved preset. delete = remove a preset. list = report saved presets.',
+          },
+          name: {
+            type: 'string',
+            description: 'Preset name, e.g. "workshop". Required for save/load/delete.',
+          },
+        },
+        required: ['action'],
+      },
+    },
+    handler: (args) => {
+      const action = args.action as string;
+      const name = (args.name as string | undefined)?.trim().toLowerCase();
+
+      if (action === 'list') {
+        try {
+          const presets = JSON.parse(localStorage.getItem('jarvis_hud_layouts') ?? '{}') as Record<string, unknown[]>;
+          const names = Object.keys(presets);
+          if (names.length === 0) return { success: true, message: 'No layout presets saved yet.' };
+          return {
+            success: true,
+            layouts: names,
+            instruction: `Tell the user their saved layouts: ${names.join(', ')}.`,
+          };
+        } catch {
+          return { success: true, message: 'No layout presets saved yet.' };
+        }
+      }
+
+      if (!name) return { error: 'A layout name is required.' };
+      const command = action === 'save' ? 'save_layout' : action === 'load' ? 'load_layout' : 'delete_layout';
+      window.dispatchEvent(new CustomEvent('jarvis:hud', { detail: { command, layout_name: name } }));
+      const verbs: Record<string, string> = { save: 'saved as', load: 'switched to', delete: 'deleted' };
+      return { success: true, message: `Layout ${verbs[action] ?? action} "${name}".` };
+    },
+  },
+  {
+    name: 'briefing',
+    label: 'Briefing',
+    description: 'Let Jarvis deliver a full status briefing — weather, schedule, headlines, and markets',
+    tool: {
+      type: 'function',
+      name: 'briefing',
+      description:
+        'Run a full status briefing. Use when the user says "morning briefing", "daily briefing", "brief me", "what\'s the situation", or "catch me up". ' +
+        'This gathers current weather, today\'s schedule, top news headlines, and market movers, and opens the matching HUD widgets. ' +
+        'Summarize the returned data in a natural, flowing spoken briefing — a few sentences per section, not a list.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+    handler: async () => {
+      // Open the relevant widgets so the briefing has visuals
+      for (const widget of ['weather-home', 'agenda', 'headlines', 'stocks']) {
+        window.dispatchEvent(new CustomEvent('jarvis:hud', { detail: { command: 'open', widget } }));
+      }
+
+      const briefing: Record<string, unknown> = {};
+
+      // Weather
+      try {
+        const stored = getCachedSetting('jarvis_weather_location');
+        let lat: number | undefined;
+        let lon: number | undefined;
+        if (stored) {
+          const geo = await fetch(`/api/geocode?q=${encodeURIComponent(stored)}`).then((r) => r.json()) as { lat?: number; lon?: number };
+          lat = geo.lat; lon = geo.lon;
+        }
+        if (lat == null || lon == null) {
+          const pos = await new Promise<GeolocationPosition | null>((resolve) => {
+            if (!navigator.geolocation) { resolve(null); return; }
+            navigator.geolocation.getCurrentPosition((p) => resolve(p), () => resolve(null), { timeout: 5000 });
+          });
+          lat = pos?.coords.latitude; lon = pos?.coords.longitude;
+        }
+        if (lat != null && lon != null) {
+          const w = await fetch(`/api/weather?lat=${lat}&lon=${lon}`).then((r) => r.json()) as
+            { temp?: number; condition?: string; city?: string; hi?: number; lo?: number };
+          if (w.temp != null) {
+            briefing.weather = `${Math.round(w.temp)}° and ${w.condition} in ${w.city}. High ${Math.round(w.hi ?? 0)}°, low ${Math.round(w.lo ?? 0)}°.`;
+          }
+        }
+      } catch { /* section skipped */ }
+
+      // Schedule (local tasks today + calendar events)
+      try {
+        const lines: string[] = [];
+        const store = JSON.parse(localStorage.getItem('jarvis_calendar_tasks') ?? '{}') as
+          Record<string, { text: string; time?: string; done: boolean }[]>;
+        const d = new Date();
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        for (const t of (store[key] ?? []).filter((t) => !t.done)) {
+          lines.push(`${t.time ? t.time + ' — ' : ''}${t.text}`);
+        }
+        const events = await fetchUpcomingCalendarEvents();
+        const todayStr = new Date().toISOString().slice(0, 10);
+        for (const ev of events.filter((e) => e.start.slice(0, 10) === todayStr).slice(0, 6)) {
+          const time = ev.allDay ? 'All day' : new Date(ev.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          lines.push(`${time} — ${ev.title}`);
+        }
+        briefing.schedule = lines.length > 0 ? lines.join('; ') : 'Nothing on the schedule today.';
+      } catch { /* section skipped */ }
+
+      // Headlines
+      try {
+        const news = await fetch('/api/news-headlines').then((r) => r.json()) as { items?: { title: string }[] };
+        briefing.headlines = (news.items ?? []).slice(0, 5).map((h) => h.title);
+      } catch { /* section skipped */ }
+
+      // Markets
+      try {
+        const stocks = await fetch('/api/stock-quote?symbols=SPY,QQQ,AAPL,NVDA,TSLA').then((r) => r.json()) as
+          { quotes?: { symbol: string; changePct?: number; up?: boolean; error?: string }[] };
+        briefing.markets = (stocks.quotes ?? [])
+          .filter((q) => !q.error)
+          .map((q) => `${q.symbol} ${q.up ? 'up' : 'down'} ${Math.abs(q.changePct ?? 0).toFixed(1)}%`)
+          .join(', ');
+      } catch { /* section skipped */ }
+
+      return {
+        success: true,
+        ...briefing,
+        instruction:
+          'Deliver this as one continuous natural spoken briefing: start with the weather, then the schedule, then a 2-sentence news summary, then one sentence on the markets. Keep the whole thing under 30 seconds of speech.',
+      };
+    },
+  },
+  {
+    name: 'set_theme',
+    label: 'Theme Control',
+    description: 'Let Jarvis switch the interface color theme by voice',
+    tool: {
+      type: 'function',
+      name: 'set_theme',
+      description:
+        'Change the Jarvis interface color theme. Use when the user says "switch to crimson", "go matrix mode", "change the theme", or names a color. ' +
+        'Themes: arc-reactor (cyan/blue, default), midnight (purple), crimson (red), matrix (green), custom (uses the accent color from Settings → UI).',
+      parameters: {
+        type: 'object',
+        properties: {
+          theme: {
+            type: 'string',
+            enum: ['arc-reactor', 'midnight', 'crimson', 'matrix', 'custom'],
+            description: 'The theme to activate. Map color words: blue/cyan → arc-reactor, purple → midnight, red → crimson, green → matrix.',
+          },
+        },
+        required: ['theme'],
+      },
+    },
+    handler: (args) => {
+      const theme = args.theme as string;
+      if (!['arc-reactor', 'midnight', 'crimson', 'matrix', 'custom'].includes(theme)) {
+        return { error: 'Unknown theme.' };
+      }
+      window.dispatchEvent(new CustomEvent('jarvis:set-theme', { detail: { theme } }));
+      return { success: true, message: `Theme switched to ${theme}.` };
+    },
+  },
+  {
+    name: 'ambient_mode',
+    label: 'Ambient Mode',
+    description: 'Let Jarvis enter or exit the ambient standby screen (dimmed clock display)',
+    tool: {
+      type: 'function',
+      name: 'ambient_mode',
+      description:
+        'Enter or exit ambient standby mode — a dimmed full-screen clock display. ' +
+        'Use when the user says "ambient mode", "standby", "screensaver", "dim the screen", or "wake up" / "exit standby".',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['enter', 'exit'],
+            description: 'enter = show the ambient standby screen. exit = return to the normal interface.',
+          },
+        },
+        required: ['action'],
+      },
+    },
+    handler: (args) => {
+      const action = args.action as string;
+      window.dispatchEvent(new CustomEvent(action === 'exit' ? 'jarvis:ambient-exit' : 'jarvis:ambient'));
+      return {
+        success: true,
+        message: action === 'exit' ? 'Exited ambient mode.' : 'Ambient standby engaged. Any input wakes the interface.',
+      };
     },
   },
 ];

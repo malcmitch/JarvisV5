@@ -1,0 +1,74 @@
+{
+  "type": "client",
+  "name": "set_reminder",
+  "description": "Manage reminders that pop an on-screen notification with sound at a specific time. Use for 'remind me at 3pm to check the print' or 'remind me in 20 minutes to stretch'. Reminders persist across app restarts. Provide EITHER in_minutes OR time (24-hour HH:MM, optional date).",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "action",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "add = create a reminder. cancel = remove one by text match. list = report pending reminders.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["add", "cancel", "list"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "text",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "What to remind the user about, e.g. 'check the print'. Required for add; used to match for cancel.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [],
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "in_minutes",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Fire the reminder this many minutes from now. Use for relative requests like 'in 20 minutes'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [],
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "time",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "24-hour time HH:MM (e.g. '15:00' for 3pm). Use for absolute requests like 'at 3pm'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [],
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "date",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Optional ISO date YYYY-MM-DD for the time parameter. Defaults to today (or tomorrow if the time already passed).",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [],
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

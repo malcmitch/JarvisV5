@@ -1,0 +1,41 @@
+{
+  "type": "client",
+  "name": "hud_layout",
+  "description": "Save or restore named HUD widget layout presets. Use when the user says 'save this layout as workshop', 'switch to monitoring mode', 'load my workshop configuration', or 'what layouts do I have?'. Layout names are free-form lowercase strings like 'workshop' or 'monitoring'.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "action",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "save = store the current widget arrangement under a name. load = restore a saved preset. delete = remove a preset. list = report saved presets.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["save", "load", "delete", "list"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "name",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Preset name, e.g. 'workshop'. Required for save/load/delete.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [],
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

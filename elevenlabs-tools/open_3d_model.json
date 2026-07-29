@@ -1,0 +1,41 @@
+{
+  "type": "client",
+  "name": "open_3d_model",
+  "description": "Open and display a spinning 3D model on screen. Use whenever the user says 'show', 'open', 'display', 'load', or 'pull up' a 3D model. The only available model right now is 'Dum-E'. If the user asks for any robot arm, Dum-E, or any 3D model, call this with model_name='Dum-E'.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "model_name",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The filename stem of the model without extension. Currently only 'Dum-E' is available. Always use 'Dum-E' unless told otherwise.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "display_name",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Short display name shown on screen. Use just the model's name, e.g. 'Dum-E'. Do NOT include words like '3D', 'model', 'file', etc.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [],
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

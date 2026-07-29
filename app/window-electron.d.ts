@@ -26,6 +26,10 @@ declare global {
       setWakeWordEnabled?: (enabled: boolean) => void;
       setWakeWordSensitivity?: (sensitivity: number) => void;
       setWakeWordMicInUse?: (inUse: boolean) => void;
+      getTouchInputStatus?: () => Promise<{ connected: boolean; product?: string; permissionDenied?: boolean }>;
+      onTouchInputStatus?: (
+        callback: (status: { connected: boolean; product?: string; permissionDenied?: boolean }) => void
+      ) => () => void;
     };
   }
 }

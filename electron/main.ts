@@ -18,6 +18,7 @@ import crypto from 'crypto';
 import { spawn, ChildProcess } from 'child_process';
 import { networkInterfaces } from 'os';
 import { WakeWordService } from './wake-word';
+import { TouchInputService, TouchInputStatus } from './touch-input';
 
 const isDev = !app.isPackaged;
 const PORT = 3000;
@@ -93,6 +94,7 @@ let desktopVisualWindow: BrowserWindow | null = null;
 let desktopHitboxWindow: BrowserWindow | null = null;
 let nextServer: ChildProcess | null = null;
 let wakeWordService: WakeWordService | null = null;
+let touchInputService: TouchInputService | null = null;
 // Set to true only after the Next.js server is confirmed ready and the first
 // window has been created. Guards activate/reopen handlers from firing early.
 let appReady = false;
@@ -462,6 +464,11 @@ function startNextServer(): Promise<void> {
         HOSTNAME: '127.0.0.1',
         NODE_ENV: 'production',
         NEXT_MANUAL_SIG_HANDLE: 'true',
+        // Per-user writable location for runtime secrets (Bambu token, server
+        // settings). Without this the server writes them next to server.js —
+        // i.e. inside the (shared, read-only, distributable) app bundle — which
+        // leaks the packager's credentials to everyone who installs the app.
+        JARVIS_DATA_DIR: app.getPath('userData'),
       },
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -639,6 +646,13 @@ async function startHttpsProxy(): Promise<void> {
       proxy.ws(req, socket, head);
     });
 
+    httpsServer.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.log(`[jarvis] HTTPS proxy already running on port ${HTTPS_PORT}, skipping.`);
+      } else {
+        console.error('[jarvis] HTTPS server error:', err.message);
+      }
+    });
     httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
       const ip = getLanIp();
       if (ip) console.log(`[jarvis] LAN HTTPS: https://${ip}:${HTTPS_PORT}`);
@@ -815,6 +829,20 @@ app.whenReady().then(async () => {
   ipcMain.on('hey-jarvis:mic-in-use', (_event, inUse: boolean) => {
     wakeWordService!.setMicInUse(inUse);
   });
+
+  // USB touch-screen (ILITEK IR film) — reads raw HID touch reports and
+  // replays them into the window as clicks/drags. Idle when not plugged in.
+  touchInputService = new TouchInputService(
+    () => mainWindow,
+    (status: TouchInputStatus) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('touch-input:status', status);
+      }
+    }
+  );
+  touchInputService.start();
+
+  ipcMain.handle('touch-input:get-status', () => touchInputService?.status ?? { connected: false });
 });
 
 app.on('window-all-closed', () => {
@@ -835,6 +863,7 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   wakeWordService?.stop();
+  touchInputService?.stop();
   nextServer?.kill();
   httpsServer?.close();
 });

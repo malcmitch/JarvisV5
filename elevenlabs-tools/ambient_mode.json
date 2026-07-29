@@ -1,0 +1,30 @@
+{
+  "type": "client",
+  "name": "ambient_mode",
+  "description": "Enter or exit ambient standby mode - a dimmed full-screen clock display. Use when the user says 'ambient mode', 'standby', 'screensaver', 'dim the screen', or 'wake up' / 'exit standby'.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "action",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "enter = show the ambient standby screen. exit = return to the normal interface.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["enter", "exit"],
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

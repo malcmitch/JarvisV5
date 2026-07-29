@@ -8,7 +8,12 @@ import fs from 'fs';
 import path from 'path';
 
 const BAMBU_API  = 'https://api.bambulab.com';
-const TOKEN_PATH = path.join(process.cwd(), '.bambu-token.json');
+// The Bambu access token grants full control of the account's printers, so it
+// must be stored per-user and never inside the distributable app bundle. In
+// packaged builds Electron passes JARVIS_DATA_DIR (the OS per-user app-data
+// dir); in dev we fall back to the git-ignored project root.
+const DATA_DIR   = process.env.JARVIS_DATA_DIR || process.cwd();
+const TOKEN_PATH = path.join(DATA_DIR, '.bambu-token.json');
 
 export interface BambuToken {
   accessToken: string;

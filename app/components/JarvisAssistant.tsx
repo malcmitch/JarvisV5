@@ -17,6 +17,20 @@ import { PhotoWidget, PhotoEntry } from './PhotoWidget';
 import { sfx } from '../lib/sfx';
 import { installErrorInterceptors, emitError } from '../lib/errorBus';
 import { loadServerSettings, saveServerSettings } from '../lib/serverSettings';
+import { ModelViewerWidget } from './ModelViewerWidget';
+import { isInterfaceLocked } from './LockScreen';
+
+// Tools that remain usable while the PIN lock screen is active
+const LOCK_ALLOWED_FUNCTIONS = new Set(['get_time', 'get_date', 'jarvis_disconnect', 'lock_interface']);
+
+const LOCKED_RESULT = {
+  error: 'The interface is locked. Tell the user the interface is in lockdown and the PIN must be entered on screen to unlock it.',
+};
+
+function dispatchTranscript(role: 'user' | 'jarvis', text: string): void {
+  if (!text?.trim()) return;
+  window.dispatchEvent(new CustomEvent('jarvis:transcript', { detail: { role, text } }));
+}
 
 const FFT_BARS = 64;
 const OPENAI_REALTIME_MODEL = 'gpt-realtime-2';
@@ -27,7 +41,10 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   elevenLabsFirstMessage: '',
   voice: 'echo',
   initialPrompt: 'You are Jarvis, a helpful AI assistant. You are always helpful, polite, and concise. Subtle British accent. Robotic. Emotionally controlled. Witty and a little bit poking fun at the user.',
-  enabledFunctions: ['desktop_mode', 'navigate_to_page', 'jarvis_disconnect'],
+  enabledFunctions: [
+    'desktop_mode', 'navigate_to_page', 'jarvis_disconnect',
+    'lock_interface', 'set_timer', 'set_reminder', 'hud_layout', 'briefing', 'set_theme', 'ambient_mode',
+  ],
   wakeWordEnabled: false,
   wakeWordSensitivity: 0.5,
   theme: 'arc-reactor',
@@ -50,7 +67,7 @@ function isDesktopPanelPosition(value: unknown): value is DesktopPanelPosition {
   );
 }
 
-export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
+export function JarvisAssistant({ compact = false, roundDisplay = false }: { compact?: boolean; roundDisplay?: boolean }) {
   const [status, setStatus] = useState<'idle' | 'listening' | 'active' | 'error'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
   const [micMuted, setMicMuted] = useState(false);
@@ -66,6 +83,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const [ring1Rotation, setRing1Rotation] = useState(0);
   const [ring2Rotation, setRing2Rotation] = useState(0);
+  const [centerWidget, setCenterWidget] = useState<{ type: 'model'; path: string; name: string } | null>(null);
   const rotationFrameRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(Date.now());
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -98,6 +116,9 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       FUNCTION_REGISTRY.map((fn) => [
         fn.name,
         async (params: Record<string, unknown>) => {
+          if (isInterfaceLocked() && !LOCK_ALLOWED_FUNCTIONS.has(fn.name)) {
+            return LOCKED_RESULT;
+          }
           const result = await fn.handler(params);
           const r = result as Record<string, unknown> | null;
           if (typeof r?.error === 'string') {
@@ -139,6 +160,12 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       setLastError(msg);
       emitError('elevenlabs', msg);
     },
+    onMessage: (message: { message?: string; source?: string }) => {
+      // Feed the COMMS LOG transcript widget
+      if (typeof message?.message === 'string') {
+        dispatchTranscript(message.source === 'user' ? 'user' : 'jarvis', message.message);
+      }
+    },
   });
 
   // Photo context state
@@ -164,6 +191,17 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
   // Install global error interceptors once so all console.error calls,
   // uncaught JS errors, and unhandled rejections stream to TerminalWidget.
   useEffect(() => { installErrorInterceptors(); }, []);
+
+  // Listen for open-model events — only show center widget when in round display mode
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (!roundDisplay) return;
+      const { path, name } = (e as CustomEvent<{ path: string; name: string }>).detail;
+      setCenterWidget({ type: 'model', path, name });
+    };
+    window.addEventListener('jarvis:open-model', handler);
+    return () => window.removeEventListener('jarvis:open-model', handler);
+  }, [roundDisplay]);
 
   useEffect(() => {
     statusRef.current = status;
@@ -492,7 +530,75 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
     } else {
       html.removeAttribute('data-grid');
     }
-  }, [settings.theme, settings.grid]);
+
+    // Custom theme: derive the CSS accent variables from the picked hex color
+    const accentVars = ['--accent-rgb', '--accent-hex', '--accent-dim', '--accent-dark-rgb', '--accent-glow', '--accent-glow-strong', '--accent-glow-light', '--accent-bg'];
+    if (settings.theme === 'custom') {
+      const hex = /^#[0-9a-fA-F]{6}$/.test(settings.customAccent ?? '') ? settings.customAccent! : '#f59e0b';
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      const dim = `rgb(${Math.round(r * 0.6)}, ${Math.round(g * 0.6)}, ${Math.round(b * 0.6)})`;
+      html.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
+      html.style.setProperty('--accent-hex', hex);
+      html.style.setProperty('--accent-dim', dim);
+      html.style.setProperty('--accent-dark-rgb', `${Math.round(r * 0.2)}, ${Math.round(g * 0.2)}, ${Math.round(b * 0.2)}`);
+      html.style.setProperty('--accent-glow', `rgba(${r}, ${g}, ${b}, 0.3)`);
+      html.style.setProperty('--accent-glow-strong', `rgba(${r}, ${g}, ${b}, 0.8)`);
+      html.style.setProperty('--accent-glow-light', `rgba(${r}, ${g}, ${b}, 0.15)`);
+      html.style.setProperty('--accent-bg', `rgba(${r}, ${g}, ${b}, 0.1)`);
+    } else {
+      accentVars.forEach((v) => html.style.removeProperty(v));
+    }
+  }, [settings.theme, settings.grid, settings.customAccent]);
+
+  // Open settings from the radial nav / command palette
+  useEffect(() => {
+    const handler = () => setIsSettingsOpen(true);
+    window.addEventListener('jarvis:open-settings', handler);
+    return () => window.removeEventListener('jarvis:open-settings', handler);
+  }, []);
+
+  // UI-triggered announcements (e.g. armory BUILD button): feed the event text
+  // into the live session so Jarvis speaks a response. No-op when disconnected.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      if (!text) return;
+
+      // ElevenLabs path — sendUserMessage triggers a spoken agent reply
+      if (elConversation.status === 'connected') {
+        Promise.resolve(elConversation.sendUserMessage(text)).catch(() => {});
+        return;
+      }
+
+      // OpenAI Realtime path
+      const dc = dataChannelRef.current;
+      if (!dc || dc.readyState !== 'open') return;
+      dc.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] },
+      }));
+      dc.send(JSON.stringify({ type: 'response.create' }));
+    };
+    window.addEventListener('jarvis:announce', handler);
+    return () => window.removeEventListener('jarvis:announce', handler);
+  }, [elConversation]);
+
+  // Theme change by voice (set_theme tool) — persist like a settings save
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const theme = (e as CustomEvent<{ theme?: JarvisSettings['theme'] }>).detail?.theme;
+      if (!theme || !['arc-reactor', 'midnight', 'crimson', 'matrix', 'custom'].includes(theme)) return;
+      setSettings((prev) => {
+        const updated = { ...prev, theme };
+        localStorage.setItem('jarvis_settings', JSON.stringify(updated));
+        return updated;
+      });
+    };
+    window.addEventListener('jarvis:set-theme', handler);
+    return () => window.removeEventListener('jarvis:set-theme', handler);
+  }, []);
 
   // Load settings — server first (shared across all LAN clients), then localStorage fallback
   useEffect(() => {
@@ -901,6 +1007,14 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
             console.error('OpenAI Error:', data.error);
           }
 
+          // Feed the COMMS LOG transcript widget with Jarvis's spoken replies
+          if (data.type === 'response.audio_transcript.done' && typeof data.transcript === 'string') {
+            dispatchTranscript('jarvis', data.transcript);
+          }
+          if (data.type === 'conversation.item.input_audio_transcription.completed' && typeof data.transcript === 'string') {
+            dispatchTranscript('user', data.transcript);
+          }
+
           // Accumulate argument deltas
           if (data.type === 'response.function_call_arguments.delta') {
             const id = data.call_id as string;
@@ -942,7 +1056,9 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
               return;
             }
 
-            const result = await fn.handler(parsedArgs);
+            const result = (isInterfaceLocked() && !LOCK_ALLOWED_FUNCTIONS.has(fnName))
+              ? LOCKED_RESULT
+              : await fn.handler(parsedArgs);
 
             // Surface function-level errors (e.g. ENOENT, missing API key, network failures)
             // to the Error Terminal widget so they're visible without opening devtools.
@@ -1269,10 +1385,12 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
       <div className={`fixed inset-0 flex overflow-hidden pointer-events-none select-none ${
         compact
           ? 'items-end justify-end pb-6 pr-6 z-[60]'
+          : roundDisplay
+          ? 'items-center justify-center z-[50]'
           : `${positionClass[pos]} ${positionPadding[pos]}`
       }`}>
-        {/* Background with slight gradient — hidden in compact mode */}
-        {!compact && (
+        {/* Background with slight gradient — hidden in compact/round mode */}
+        {!compact && !roundDisplay && (
           <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/20 pointer-events-none" />
         )}
 
@@ -1282,6 +1400,8 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
           className={`relative flex items-center justify-center aspect-square pointer-events-auto ${
             compact
               ? 'w-[160px]'
+              : roundDisplay
+              ? 'w-[min(100vw,100vh)]'
               : isCenter
               ? 'w-[80vw] max-w-[500px]'
               : 'w-[50vw] max-w-[340px]'
@@ -1408,8 +1528,20 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
             </div>
           )}
 
-          {/* Logo - Center (Clickable for Settings); 3D mode uses particle logo instead */}
-          {settings.visualizer !== 'sphere-nodes' && (
+          {/* Center widget (model viewer etc.) — overlays logo when active */}
+          <AnimatePresence>
+            {centerWidget?.type === 'model' && (
+              <ModelViewerWidget
+                key="model-viewer"
+                modelPath={centerWidget.path}
+                modelName={centerWidget.name}
+                onClose={() => setCenterWidget(null)}
+              />
+            )}
+          </AnimatePresence>
+
+          {/* Logo - Center (Clickable for Settings); hidden when a center widget is open; 3D mode uses particle logo instead */}
+          {settings.visualizer !== 'sphere-nodes' && !centerWidget && (
             <div
               className={`relative z-10 w-[55%] h-[55%] cursor-pointer group ${isCompactMuted ? 'opacity-35 grayscale' : ''}`}
               role="button"
@@ -1434,7 +1566,7 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
               />
             </div>
           )}
-          {settings.visualizer === 'sphere-nodes' && (
+          {settings.visualizer === 'sphere-nodes' && !centerWidget && (
             <button
               type="button"
               aria-label={compact ? (micMuted ? 'Unmute microphone' : 'Mute microphone') : 'Open settings'}
@@ -1446,8 +1578,8 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
             />
           )}
 
-          {/* Status Info — hidden in compact corner mode */}
-          {!compact && (
+          {/* Status Info — hidden in compact/round-display mode */}
+          {!compact && !roundDisplay && (
             <div className="absolute bottom-[-100px] left-1/2 -translate-x-1/2 text-center space-y-4 w-full">
               <button 
                 onClick={() => {
@@ -1511,6 +1643,16 @@ export function JarvisAssistant({ compact = false }: { compact?: boolean }) {
 
         {/* Hidden Audio Element */}
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+
+        {/* Round Display — back button */}
+        {roundDisplay && (
+          <button
+            className="fixed top-4 left-4 z-[70] pointer-events-auto text-cyan-400/60 hover:text-cyan-300 transition-colors text-xs uppercase tracking-widest"
+            onClick={() => window.dispatchEvent(new CustomEvent('jarvis:navigate', { detail: { page: 'home' } }))}
+          >
+            ← Back
+          </button>
+        )}
       </div>
 
       {/* X-Ray Widget */}

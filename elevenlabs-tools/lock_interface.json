@@ -1,0 +1,18 @@
+{
+  "type": "client",
+  "name": "lock_interface",
+  "description": "Lock the Jarvis interface behind the PIN lock screen. Use when the user says 'lock it down', 'lock the interface', 'security lockdown', 'lock up', or similar. The user must have enabled the lock and set a PIN in Settings > Security first. Unlocking requires entering the PIN on screen - it can NOT be done by voice.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

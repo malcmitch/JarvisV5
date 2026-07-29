@@ -6,6 +6,12 @@ import { ConversationProvider } from '@elevenlabs/react';
 import { JarvisAssistant } from "./components/JarvisAssistant";
 import { HUDLayer } from "./components/HUD/HUDLayer";
 import { IntroAnimation } from "./components/IntroAnimation";
+import { NotificationLayer } from "./components/NotificationLayer";
+import { RadialNav } from "./components/RadialNav";
+import { CommandPalette } from "./components/CommandPalette";
+import { AmbientMode } from "./components/AmbientMode";
+import { LockController } from "./components/LockScreen";
+import { OnboardingWizard } from "./components/OnboardingWizard";
 import { NewsPage } from "./components/pages/NewsPage";
 import { CalendarPage } from "./components/pages/CalendarPage";
 import { HomeAssistantPage } from "./components/pages/HomeAssistantPage";
@@ -20,9 +26,29 @@ const MapPage = dynamic(
   { ssr: false }
 );
 
-type JarvisPage = 'home' | 'news' | 'map' | 'calendar' | 'home-assistant' | '3d-printers' | 'music';
+// Three.js suit gallery — client-only, keeps three out of the main bundle
+const SpidermanPage = dynamic(
+  () => import('./components/pages/SpidermanPage').then((m) => ({ default: m.SpidermanPage })),
+  { ssr: false }
+);
 
-const VALID_PAGES: JarvisPage[] = ['home', 'news', 'map', 'calendar', 'home-assistant', '3d-printers', 'music'];
+// Three.js fabrication bay — client-only for the same reason
+const ManufacturingPage = dynamic(
+  () => import('./components/pages/ManufacturingPage').then((m) => ({ default: m.ManufacturingPage })),
+  { ssr: false }
+);
+
+// Three.js web-shooter designer — client-only for the same reason
+const WebshooterPage = dynamic(
+  () => import('./components/pages/WebshooterPage').then((m) => ({ default: m.WebshooterPage })),
+  { ssr: false }
+);
+
+type JarvisPage = 'home' | 'news' | 'map' | 'calendar' | 'home-assistant' | '3d-printers' | 'music' | 'round-display' | 'spiderman' | 'manufacturing' | 'webshooter';
+
+const VALID_PAGES: JarvisPage[] = ['home', 'news', 'map', 'calendar', 'home-assistant', '3d-printers', 'music', 'round-display', 'spiderman', 'manufacturing', 'webshooter'];
+
+interface BuildModel { file: string; name: string; sub: string }
 
 export default function Home() {
   const [showIntro, setShowIntro]         = useState(false);
@@ -33,6 +59,8 @@ export default function Home() {
   const [currentPage, setCurrentPage]     = useState<JarvisPage>('home');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [pendingMapCmd, setPendingMapCmd] = useState<Record<string, any> | null>(null);
+  // Model handed to the manufacturing page by the armory BUILD button
+  const [pendingBuildModel, setPendingBuildModel] = useState<BuildModel | null>(null);
 
   // Persist current page so it survives full tab reloads (iOS Safari jettisoning,
   // Next.js HMR reconnects, etc.)
@@ -57,22 +85,26 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // Restore the last page the user was on after hydration completes.
-    const saved = localStorage.getItem('jarvis_current_page') as JarvisPage | null;
-    if (saved && VALID_PAGES.includes(saved) && saved !== 'home') {
-      setCurrentPage(saved);
-    }
-
     // Pre-warm the server settings cache so all child components can read
     // getCachedSetting() synchronously before their own effects run.
     loadServerSettings();
 
-    const seen = sessionStorage.getItem('jarvis_intro_done');
-    if (!seen) {
-      setShowIntro(true);
-    } else {
-      setContentReady(true);
-    }
+    // Defer state restoration out of the effect body (react-hooks/set-state-in-effect)
+    const timer = window.setTimeout(() => {
+      // Restore the last page the user was on after hydration completes.
+      const saved = localStorage.getItem('jarvis_current_page') as JarvisPage | null;
+      if (saved && VALID_PAGES.includes(saved) && saved !== 'home') {
+        setCurrentPage(saved);
+      }
+
+      const seen = sessionStorage.getItem('jarvis_intro_done');
+      if (!seen) {
+        setShowIntro(true);
+      } else {
+        setContentReady(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Listen for navigate events dispatched by Jarvis functions
@@ -81,10 +113,13 @@ export default function Home() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const detail = (e as CustomEvent<any>).detail ?? {};
       const page: JarvisPage = detail.page;
-      if (page === 'home' || page === 'news' || page === 'map' || page === 'calendar' || page === 'home-assistant' || page === '3d-printers' || page === 'music') {
+      if (VALID_PAGES.includes(page)) {
         setCurrentPage(page);
         if (page === 'map' && detail.mapCommand) {
           setPendingMapCmd(detail.mapCommand);
+        }
+        if (page === 'manufacturing') {
+          setPendingBuildModel(detail.buildModel ?? null);
         }
       }
     };
@@ -103,12 +138,15 @@ export default function Home() {
           JarvisAssistant becomes a compact corner visualizer when on other pages. */}
       <div style={{ opacity: contentReady ? 1 : 0, transition: 'none' }}>
         <ConversationProvider>
-          <JarvisAssistant compact={currentPage !== 'home'} />
+          <JarvisAssistant
+            compact={currentPage !== 'home' && currentPage !== 'round-display'}
+            roundDisplay={currentPage === 'round-display'}
+          />
         </ConversationProvider>
       </div>
 
-      {/* HUD widgets — sit behind page overlays */}
-      <HUDLayer scanReady={contentReady} />
+      {/* HUD widgets — sit behind page overlays, hidden on round display */}
+      {currentPage !== 'round-display' && <HUDLayer scanReady={contentReady} />}
 
       {/* Page overlays — slide in over the home layer */}
       <AnimatePresence mode="wait">
@@ -135,7 +173,32 @@ export default function Home() {
         {currentPage === 'music' && (
           <MusicPage key="music" onNavigateHome={() => setCurrentPage('home')} />
         )}
+        {currentPage === 'spiderman' && (
+          <SpidermanPage key="spiderman" onNavigateHome={() => setCurrentPage('home')} />
+        )}
+        {currentPage === 'manufacturing' && (
+          <ManufacturingPage
+            key="manufacturing"
+            onNavigateHome={() => setCurrentPage('home')}
+            initialModel={pendingBuildModel}
+          />
+        )}
+        {currentPage === 'webshooter' && (
+          <WebshooterPage key="webshooter" onNavigateHome={() => setCurrentPage('home')} />
+        )}
       </AnimatePresence>
+
+      {/* Global chrome — radial nav, palette, toasts, ambient, lock */}
+      {contentReady && (
+        <>
+          <RadialNav currentPage={currentPage} />
+          <CommandPalette />
+          <NotificationLayer />
+          <AmbientMode />
+          <OnboardingWizard />
+          <LockController />
+        </>
+      )}
 
       {/* Intro overlay */}
       <AnimatePresence>

@@ -1,0 +1,52 @@
+{
+  "type": "client",
+  "name": "set_timer",
+  "description": "Manage countdown timers. Use when the user says 'set a timer for 10 minutes', 'cancel the timer', or asks how long is left. Starting a timer opens the TIMERS widget on the HUD and a notification with sound fires when it completes.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "action",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "start = begin a new countdown. cancel = stop a running timer. list = report active timers.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": ["start", "cancel", "list"],
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "minutes",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Timer duration in minutes (may be fractional, e.g. 0.5 for 30 seconds). Required for start.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [],
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "label",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Optional short label like 'pasta' or 'print check'. Also used to match which timer to cancel.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [],
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

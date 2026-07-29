@@ -1,6 +1,6 @@
 # ElevenLabs Client Tools
 
-25 client tool JSON configs for the Jarvis ElevenLabs agent. Import each one into your agent via the ElevenLabs dashboard.
+Client tool JSON configs for the Jarvis ElevenLabs agent. Import each one into your agent via the ElevenLabs dashboard.
 
 ## Tools
 
@@ -31,3 +31,12 @@
 | `open_pdf.json` | ❌ | 1s |
 | `map_command.json` | ❌ | 5s |
 | `add_home_widget.json` | ❌ | 1s |
+| `open_3d_model.json` | ✅ | 5s |
+| `fullscreen.json` | ✅ | 3s |
+| `lock_interface.json` | ✅ | 5s |
+| `set_timer.json` | ✅ | 5s |
+| `set_reminder.json` | ✅ | 5s |
+| `hud_layout.json` | ✅ | 5s |
+| `briefing.json` | ✅ | 15s |
+| `set_theme.json` | ✅ | 5s |
+| `ambient_mode.json` | ✅ | 5s |
