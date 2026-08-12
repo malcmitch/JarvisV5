@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
 Single-task computer use agent for Jarvis.
-Usage: python3 computer_use.py <task> <api_key>
+
+Usage: python3 computer_use.py <task>
+Credentials come from OPENAI_API_KEY / OPENAI_BASE_URL in the environment.
 Outputs a JSON result line at the end.
 """
 
 import base64
 import io
 import json
+import os
 import sys
 import time
 import warnings
@@ -133,8 +136,8 @@ def execute_action(action) -> None:
         print(f"  [skip] unknown action: {action_type}", file=sys.stderr)
 
 
-def run_task(task: str, api_key: str) -> dict:
-    client = OpenAI(api_key=api_key)
+def run_task(task: str, api_key: str, base_url: str | None = None) -> dict:
+    client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
 
     print(f"[computer-use] Task: \"{task}\" | Screen: {SCREEN_W}×{SCREEN_H}", file=sys.stderr)
 
@@ -212,15 +215,29 @@ def run_task(task: str, api_key: str) -> dict:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print(json.dumps({"error": "Usage: computer_use.py <task> <api_key>"}))
+    if len(sys.argv) < 2:
+        print(json.dumps({"error": "Usage: computer_use.py <task>"}))
         sys.exit(1)
 
     task = sys.argv[1]
-    api_key = sys.argv[2]
+
+    # Credentials arrive through the environment. They used to be argv[2], which
+    # meant `ps` showed the key to every user on the machine for the life of the
+    # task. Jarvis points these at its own loopback bridge, which swaps in the
+    # signed-in account's token, so nothing here is an OpenAI key.
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    base_url = os.environ.get("OPENAI_BASE_URL") or None
+
+    # Tolerate the old signature so a stale bundled binary keeps working.
+    if not api_key and len(sys.argv) >= 3:
+        api_key = sys.argv[2]
+
+    if not api_key:
+        print(json.dumps({"error": "Jarvis is not signed in, so Computer Use cannot run."}))
+        sys.exit(1)
 
     try:
-        output = run_task(task, api_key)
+        output = run_task(task, api_key, base_url)
     except Exception as e:
         output = {"error": str(e)}
 

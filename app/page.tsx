@@ -11,6 +11,7 @@ import { RadialNav } from "./components/RadialNav";
 import { CommandPalette } from "./components/CommandPalette";
 import { AmbientMode } from "./components/AmbientMode";
 import { LockController } from "./components/LockScreen";
+import { SignInGate } from "./components/SignInGate";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { NewsPage } from "./components/pages/NewsPage";
 import { CalendarPage } from "./components/pages/CalendarPage";
@@ -19,6 +20,17 @@ import { PrinterPage } from "./components/pages/PrinterPage";
 import { MusicPage } from "./components/pages/MusicPage";
 import { AnimatePresence } from 'framer-motion';
 import { loadServerSettings } from './lib/serverSettings';
+import { playSfxAwait } from './lib/sfx';
+
+function isIntroAnimationDisabled(): boolean {
+  try {
+    const raw = localStorage.getItem('jarvis_settings');
+    if (!raw) return false;
+    return !!(JSON.parse(raw) as { disableIntroAnimation?: boolean }).disableIntroAnimation;
+  } catch {
+    return false;
+  }
+}
 
 // MapLibre GL JS accesses browser APIs on import — must be client-only (no SSR)
 const MapPage = dynamic(
@@ -44,9 +56,25 @@ const WebshooterPage = dynamic(
   { ssr: false }
 );
 
-type JarvisPage = 'home' | 'news' | 'map' | 'calendar' | 'home-assistant' | '3d-printers' | 'music' | 'round-display' | 'spiderman' | 'manufacturing' | 'webshooter';
+// Electron <webview> social dashboard — client-only
+const SocialMediaPage = dynamic(
+  () => import('./components/pages/SocialMediaPage').then((m) => ({ default: m.SocialMediaPage })),
+  { ssr: false }
+);
 
-const VALID_PAGES: JarvisPage[] = ['home', 'news', 'map', 'calendar', 'home-assistant', '3d-printers', 'music', 'round-display', 'spiderman', 'manufacturing', 'webshooter'];
+const AudioTestPage = dynamic(
+  () => import('./components/pages/AudioTestPage').then((m) => ({ default: m.AudioTestPage })),
+  { ssr: false }
+);
+
+const OnewheelPage = dynamic(
+  () => import('./components/pages/OnewheelPage').then((m) => ({ default: m.OnewheelPage })),
+  { ssr: false }
+);
+
+type JarvisPage = 'home' | 'news' | 'map' | 'calendar' | 'home-assistant' | '3d-printers' | 'music' | 'round-display' | 'spiderman' | 'manufacturing' | 'webshooter' | 'social' | 'audio-test' | 'onewheel';
+
+const VALID_PAGES: JarvisPage[] = ['home', 'news', 'map', 'calendar', 'home-assistant', '3d-printers', 'music', 'round-display', 'spiderman', 'manufacturing', 'webshooter', 'social', 'audio-test', 'onewheel'];
 
 interface BuildModel { file: string; name: string; sub: string }
 
@@ -98,14 +126,21 @@ export default function Home() {
       }
 
       const seen = sessionStorage.getItem('jarvis_intro_done');
-      if (!seen) {
+      if (!seen && !isIntroAnimationDisabled()) {
         setShowIntro(true);
       } else {
+        sessionStorage.setItem('jarvis_intro_done', '1');
         setContentReady(true);
       }
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  // Play pre-recorded Jarvis intro voice as soon as the boot sequence starts
+  useEffect(() => {
+    if (!showIntro) return;
+    void playSfxAwait('jarvis_intro_preferences', 1);
+  }, [showIntro]);
 
   // Listen for navigate events dispatched by Jarvis functions
   useEffect(() => {
@@ -186,6 +221,15 @@ export default function Home() {
         {currentPage === 'webshooter' && (
           <WebshooterPage key="webshooter" onNavigateHome={() => setCurrentPage('home')} />
         )}
+        {currentPage === 'onewheel' && (
+          <OnewheelPage key="onewheel" onNavigateHome={() => setCurrentPage('home')} />
+        )}
+        {currentPage === 'social' && (
+          <SocialMediaPage key="social" onNavigateHome={() => setCurrentPage('home')} />
+        )}
+        {currentPage === 'audio-test' && (
+          <AudioTestPage key="audio-test" onNavigateHome={() => setCurrentPage('home')} />
+        )}
       </AnimatePresence>
 
       {/* Global chrome — radial nav, palette, toasts, ambient, lock */}
@@ -209,6 +253,10 @@ export default function Home() {
           />
         )}
       </AnimatePresence>
+
+      {/* Account gate. Mounted last and outside the contentReady guard so it
+          covers the intro too — an unsigned machine never reaches the UI. */}
+      <SignInGate />
     </main>
   );
 }

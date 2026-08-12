@@ -28,10 +28,14 @@
       "id": "widget",
       "type": "string",
       "value_type": "llm_prompt",
-      "description": "The widget to open or close. Required for 'open' and 'close' commands. Options: 'clock', 'system' (system stats), 'network' (network graph), 'music', 'map' (HUD minimap overlay), 'suit', 'text' (text note), 'pdf' (document viewer), 'image', 'terminal' (error terminal).",
+      "description": "The widget to open or close. Required for 'open' and 'close' commands. Options include clock, system, network, music, map, suit, text, pdf, image, terminal, agenda, todo, stocks, headlines, timer, weather-radar, camera-feed, transcript, uptime, orbit, calculator.",
       "dynamic_variable": "",
       "constant_value": "",
-      "enum": ["clock", "system", "network", "music", "map", "suit", "text", "pdf", "image", "terminal"],
+      "enum": [
+        "clock", "system", "network", "music", "map", "suit", "text", "pdf", "image", "terminal",
+        "agenda", "todo", "stocks", "headlines", "timer", "weather-radar", "camera-feed",
+        "transcript", "uptime", "orbit", "calculator"
+      ],
       "is_system_provided": false,
       "required": false
     },

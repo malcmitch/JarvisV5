@@ -28,6 +28,9 @@ const PAGES: { page: string; label: string }[] = [
   { page: 'spiderman', label: 'Suit Armory' },
   { page: 'manufacturing', label: 'Fabrication Bay' },
   { page: 'webshooter', label: 'Webshooter Designer' },
+  { page: 'onewheel', label: 'Project OneWheel' },
+  { page: 'social', label: 'Social Command' },
+  { page: 'audio-test', label: 'Audio Lab' },
   { page: 'round-display', label: 'Round Display' },
 ];
 
@@ -49,6 +52,7 @@ const WIDGETS: { widget: string; label: string }[] = [
   { widget: 'camera-feed', label: 'Camera Feed' },
   { widget: 'uptime', label: 'Host Monitor' },
   { widget: 'orbit', label: 'Orbital Tracker' },
+  { widget: 'calculator', label: 'Calculator' },
 ];
 
 /**

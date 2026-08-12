@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai';
+import { requireAiProxy } from '../../lib/aiProxy';
 
 const SIZES = new Set(['1024x1024', '1536x1024', '1024x1536', 'auto']);
 const QUALITIES = new Set(['low', 'medium', 'high', 'auto']);
@@ -68,9 +69,8 @@ async function optimizePromptWithGpt55(params: {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { prompt, apiKey, size, quality, referenceImageBase64, enhancePrompt } = body as {
+    const { prompt, size, quality, referenceImageBase64, enhancePrompt } = body as {
       prompt?: string;
-      apiKey?: string;
       size?: string;
       quality?: string;
       referenceImageBase64?: string;
@@ -80,14 +80,16 @@ export async function POST(req: NextRequest) {
     if (!prompt?.trim()) {
       return NextResponse.json({ error: 'Missing prompt' }, { status: 400 });
     }
-    if (!apiKey) {
-      return NextResponse.json({ error: 'Missing apiKey' }, { status: 400 });
+
+    const bridge = requireAiProxy();
+    if (!bridge.ok) {
+      return NextResponse.json({ error: bridge.error }, { status: bridge.status });
     }
 
     const imageSize = size && SIZES.has(size) ? size : '1024x1024';
     const imageQuality = quality && QUALITIES.has(quality) ? quality : 'auto';
 
-    const client = new OpenAI({ apiKey });
+    const client = new OpenAI(bridge.proxy);
 
     const normalizedRef = referenceImageBase64?.trim();
     const shouldEnhance = enhancePrompt !== false;

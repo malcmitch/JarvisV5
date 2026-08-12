@@ -1,0 +1,38 @@
+{
+  "type": "client",
+  "name": "recall",
+  "description": "Search everything you have previously remembered about the user. Call this before answering any question that depends on personal context you were not told in this conversation — names, nicknames, preferred settings, device names, past projects, sizes, or 'what did I tell you about X'. Also call it before guessing or asking the user to repeat something they may have already told you. Returns the closest matching memories, or reports that none matched.",
+  "pre_tool_speech": "off",
+  "interruption_mode": "allow",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "query",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "What to look for, in a few keywords. For example 'garage light brightness' or 'filament preference'.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "limit",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Maximum number of memories to return. Defaults to 5.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

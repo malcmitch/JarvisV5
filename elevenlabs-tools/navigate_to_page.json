@@ -1,7 +1,7 @@
 {
   "type": "client",
   "name": "navigate_to_page",
-  "description": "Navigate Jarvis to a different page. Use for home, news, calendar, home-assistant, 3d-printers, music, spiderman, manufacturing, webshooter, and round-display pages. Use 'spiderman' whenever the user asks for the Spider-Man page, the suits, or the armory. Use 'manufacturing' when the user mentions the fabrication bay, manufacturing, or building a component. Use 'webshooter' when the user mentions web shooters, web fluid, cartridges, or the web lab. NEVER use this for map or location requests — use map_command instead.",
+  "description": "Navigate Jarvis to a different page. Use for home, news, calendar, home-assistant, 3d-printers, music, spiderman, manufacturing, webshooter, onewheel, social, audio-test, and round-display pages. Use 'spiderman' whenever the user asks for the Spider-Man page, the suits, or the armory. Use 'manufacturing' when the user mentions the fabrication bay, manufacturing, or building a component. Use 'webshooter' when the user mentions web shooters, web fluid, cartridges, or the web lab. Use 'onewheel' when the user mentions Onewheel, Project OneWheel, or the Onewheel page. Use 'social' for the Social Command dashboard (Instagram/TikTok/Facebook/YouTube + AI comment replies). Use 'audio-test' for the Audio Lab (type text for Jarvis to speak and save as MP3). NEVER use this for map or location requests — use map_command instead.",
   "disable_interruptions": false,
   "force_pre_tool_speech": false,
   "pre_tool_speech": "auto",
@@ -17,10 +17,10 @@
       "id": "page",
       "type": "string",
       "value_type": "llm_prompt",
-      "description": "The page to navigate to. Use 'home' for the main screen, 'news' for the live news feed, 'calendar' for schedule/planning, 'home-assistant' for smart home, '3d-printers' for the Bambu Lab dashboard, 'music' for the full-screen music player, 'spiderman' for the Spider-Man suit armory (3D holographic suit carousel — use for any Spider-Man, suit, or armory request), 'manufacturing' for the fabrication bay (drag a component onto a printer/laser/CNC to build it), 'webshooter' for the web-shooter designer lab (taser web, web fluid, web grenade, and acid web cartridges), 'round-display' for the full-screen circular Jarvis view optimised for round displays.",
+      "description": "The page to navigate to. Use 'home' for the main screen, 'news' for the live news feed, 'calendar' for schedule/planning, 'home-assistant' for smart home, '3d-printers' for the Bambu Lab dashboard, 'music' for the full-screen music player, 'spiderman' for the Spider-Man suit armory (3D holographic suit carousel — use for any Spider-Man, suit, or armory request), 'manufacturing' for the fabrication bay (drag a component onto a printer/laser/CNC to build it), 'webshooter' for the web-shooter designer lab (taser web, web fluid, web grenade, and acid web cartridges), 'onewheel' for Project OneWheel (holographic Onewheel Pint with Unitree Go1 and mag-lock boot add-ons), 'social' for Social Command (4 embedded social browsers + AI comment engine), 'audio-test' for the Audio Lab (type speech scripts, preview, and save MP3 via OpenAI or ElevenLabs), 'round-display' for the full-screen circular Jarvis view optimised for round displays.",
       "dynamic_variable": "",
       "constant_value": "",
-      "enum": ["home", "news", "calendar", "home-assistant", "3d-printers", "music", "spiderman", "manufacturing", "webshooter", "round-display"],
+      "enum": ["home", "news", "calendar", "home-assistant", "3d-printers", "music", "spiderman", "manufacturing", "webshooter", "onewheel", "social", "audio-test", "round-display"],
       "is_system_provided": false,
       "required": true
     }

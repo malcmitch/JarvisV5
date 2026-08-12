@@ -5,7 +5,7 @@ import { useConversation } from '@elevenlabs/react';
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
 import { SettingsModal, JarvisSettings } from './SettingsModal';
-import { FUNCTION_REGISTRY, getFunctionByName, JarvisFunction } from '../lib/functions';
+import { FUNCTION_REGISTRY, getFunctionByName, getMemoryAccountId, JarvisFunction } from '../lib/functions';
 import { loadDynamicFunctions, createGetFunctionByName, DynamicFunctionState } from '../lib/dynamic-functions';
 import { XrayWidget } from './XrayWidget';
 import { CameraWidget } from './CameraWidget';
@@ -32,12 +32,39 @@ function dispatchTranscript(role: 'user' | 'jarvis', text: string): void {
   window.dispatchEvent(new CustomEvent('jarvis:transcript', { detail: { role, text } }));
 }
 
+/**
+ * Values handed to the agent at session start and referenced as {{...}} in its
+ * system prompt. Pre-loading the memory digest here means Jarvis opens the
+ * conversation already knowing the user instead of having to call `recall`
+ * before it can say anything useful.
+ *
+ * Every key must have a matching placeholder configured on the agent, otherwise
+ * an unresolved variable fails the session.
+ */
+async function buildSessionVariables(): Promise<Record<string, string>> {
+  const accountId = getMemoryAccountId();
+  let memory = '(nothing remembered yet)';
+  try {
+    const res = await fetch(`/api/memory?accountId=${encodeURIComponent(accountId)}&limit=30`, {
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const data = await res.json() as { digest?: string; total?: number };
+      if (data.digest?.trim()) memory = data.digest.trim();
+    }
+  } catch {
+    // A missing memory store must never block the voice session.
+  }
+  return {
+    jarvis_account: accountId,
+    jarvis_memory: memory,
+    jarvis_local_time: new Date().toLocaleString(),
+  };
+}
+
 const FFT_BARS = 64;
-const OPENAI_REALTIME_MODEL = 'gpt-realtime-2';
 const DEFAULT_SETTINGS: JarvisSettings = {
-  apiMode: 'openai',
-  apiKey: '',
-  elevenLabsAgentId: '',
+  apiMode: 'elevenlabs',
   elevenLabsFirstMessage: '',
   voice: 'echo',
   initialPrompt: 'You are Jarvis, a helpful AI assistant. You are always helpful, polite, and concise. Subtle British accent. Robotic. Emotionally controlled. Witty and a little bit poking fun at the user.',
@@ -54,6 +81,7 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   position: 'center',
   shellPathOverride: '',
   pythonPathOverride: '',
+  disableIntroAnimation: false,
 };
 
 type DesktopPanelPosition = Exclude<JarvisSettings['position'], 'center'>;
@@ -89,15 +117,14 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const elPollRef = useRef<number | null>(null);
+  /** Charges the account for each further minute of an open conversation. */
+  const voiceMeterRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // When true, an unexpected WebRTC drop will schedule an auto-reconnect.
   // Set false during intentional disconnect so we don't loop.
   const autoReconnectRef = useRef(false);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Timestamp (ms) when the current session became active. Used to block
   // automatic navigate_to_page calls in the first few seconds after a
-  // session auto-reconnects, which prevents the model from navigating the
-  // user back to "home" as part of its unsolicited greeting.
-  const sessionStartTimeRef = useRef<number>(0);
 
   // Dynamic function state — starts unloaded; gates auto-start.
   const [dynamicState, setDynamicState] = useState<DynamicFunctionState>({
@@ -143,6 +170,8 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     onDisconnect: (details?: { reason?: string; code?: number; message?: string }) => {
       const reason = details?.message ?? details?.reason ?? (details?.code != null ? `code ${details.code}` : null);
       console.log('ElevenLabs disconnected', details ?? '');
+      // Stop billing the moment the call ends, however it ended.
+      stopVoiceMetering();
       if (reason && statusRef.current !== 'idle') {
         setStatus('error');
         setLastError(`Disconnected: ${reason}`);
@@ -604,48 +633,37 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
   useEffect(() => {
     const timer = window.setTimeout(() => {
       loadServerSettings().then((serverSettings) => {
-        // Pick the "best" source: prefer server if it has credentials, otherwise localStorage
-        const serverRaw   = serverSettings.jarvis_settings;
-        const localRaw    = localStorage.getItem('jarvis_settings');
+        // The server copy wins so every client on the LAN shares one set of
+        // preferences. There are no credentials to weigh up any more — those
+        // live with the signed-in account, not in settings.
+        const serverRaw = serverSettings.jarvis_settings;
+        const localRaw  = localStorage.getItem('jarvis_settings');
+        const raw = serverRaw ?? localRaw;
+        if (!raw) return;
 
-        const parseKey = (raw: string | null): string => {
-          try { return (JSON.parse(raw ?? '{}') as Partial<JarvisSettings>).apiKey ?? ''; } catch { return ''; }
-        };
-        const serverHasKey = !!parseKey(serverRaw ?? null).trim();
-        const localHasKey  = !!parseKey(localRaw).trim();
+        try {
+          const parsed = JSON.parse(raw) as Partial<JarvisSettings>;
+          const enabledFunctions = Array.from(new Set([
+            ...DEFAULT_SETTINGS.enabledFunctions,
+            ...(parsed.enabledFunctions ?? []),
+          ]));
 
-        // Choose the source that actually has credentials
-        const raw = (serverHasKey ? serverRaw : null) ?? (localHasKey ? localRaw : null) ?? serverRaw ?? localRaw;
+          // Voice is ElevenLabs, bought through the account. Settings saved
+          // before that change can still say 'openai', which would send Jarvis
+          // down a path that no longer has a key to use.
+          const nextSettings: JarvisSettings = {
+            ...DEFAULT_SETTINGS,
+            ...parsed,
+            enabledFunctions,
+            apiMode: 'elevenlabs',
+          };
+          setSettings(nextSettings);
 
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw) as Partial<JarvisSettings>;
-            const enabledFunctions = Array.from(new Set([
-              ...DEFAULT_SETTINGS.enabledFunctions,
-              ...(parsed.enabledFunctions ?? []),
-            ]));
-            const nextSettings = { ...DEFAULT_SETTINGS, ...parsed, enabledFunctions };
-            setSettings(nextSettings);
-
-            // Back-fill localStorage so offline / Electron still works
-            if (!localRaw) {
-              localStorage.setItem('jarvis_settings', JSON.stringify(nextSettings));
-            }
-
-            // If localStorage has credentials but the server doesn't, push them up now.
-            // This self-heals after a race-condition wipe.
-            if (!serverHasKey && localHasKey) {
-              saveServerSettings({ jarvis_settings: JSON.stringify(nextSettings) });
-            }
-          } catch (e) {
-            console.error('Failed to parse settings', e);
+          if (!localRaw) {
+            localStorage.setItem('jarvis_settings', JSON.stringify(nextSettings));
           }
-        } else {
-          // Fallback to env var if available
-          const envKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-          if (envKey) {
-            setSettings(prev => ({ ...prev, apiKey: envKey }));
-          }
+        } catch (e) {
+          console.error('Failed to parse settings', e);
         }
       });
     }, 0);
@@ -852,273 +870,35 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     };
   }, [status, elConversation.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function startRealtime(currentSettings = settings) {
-    try {
-      // Don't start if no API key
-      if (!currentSettings.apiKey) {
-        console.warn('No API key found, skipping connection');
-        return;
-      }
+  // The OpenAI Realtime path was removed when voice moved onto the Jarvis
+  // account: it authenticated with a key the user pasted in, which no longer
+  // exists. All speech is ElevenLabs, bought per minute through the account.
 
-      console.log(
-        `%c[Jarvis] startRealtime() called at ${new Date().toLocaleTimeString()} — model: ${currentSettings.realtimeModel ?? 'gpt-realtime-2'}`,
-        'background:#0d2137;color:#4fc3f7;font-weight:bold;padding:2px 6px;border-radius:3px'
-      );
-
-      disconnect(); // Ensure clean slate
-      setStatus('listening');
-      setLastError(null);
-      // Release the wake-word microphone before the realtime session opens it.
-      window.electron?.setWakeWordMicInUse?.(true);
-      
-      // Get microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: false 
-        }
-      });
-      localAudioStreamRef.current = stream;
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = !micMutedRef.current;
-      });
-
-      const pc = new RTCPeerConnection();
-      peerConnectionRef.current = pc;
-      autoReconnectRef.current = false; // will be set true once data channel opens
-
-      // When the WebRTC connection drops, just go idle — do NOT auto-reconnect.
-      // Auto-reconnect created a loop: drop → restart → model calls navigate_to_page('home')
-      // → page jumps → user has to deactivate Jarvis again, repeat.
-      // Jarvis reconnects explicitly when: the app loads, settings are saved, or the
-      // user clicks the logo when idle. The user is always in control.
-      pc.onconnectionstatechange = () => {
-        const state = pc.connectionState;
-        console.log(`%c[Jarvis] WebRTC connectionState → "${state}" at ${new Date().toLocaleTimeString()}`, 'color:#ffa726');
-        if (state === 'failed' || state === 'closed') {
-          autoReconnectRef.current = false;
-          setStatus('idle');
-        }
-      };
-
-      // Add local audio track
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-      
-      // Create data channel for events
-      const dc = pc.createDataChannel('oai-events');
-      dataChannelRef.current = dc;
-
-      // Handle remote audio
-      pc.ontrack = (ev) => {
-        const [remoteStream] = ev.streams;
-        remoteStreamRef.current = remoteStream;
-        const audio = remoteAudioRef.current;
-        if (audio) {
-          audio.srcObject = remoteStream;
-          audio.play().catch(e => console.error("Audio play failed", e));
-        }
-      };
-
-      const allFunctions = dynamicState.loaded ? dynamicState.allFunctions : FUNCTION_REGISTRY;
-      const enabledTools = allFunctions
-        .filter((fn) => currentSettings.enabledFunctions.includes(fn.name))
-        .map((fn) => fn.tool);
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      const model = currentSettings.realtimeModel ?? OPENAI_REALTIME_MODEL;
-
-      const offerSdp = pc.localDescription?.sdp;
-      if (!offerSdp) throw new Error('Failed to create realtime SDP offer.');
-
-      const sessionConfig = {
-        type: 'realtime',
-        model,
-        instructions: currentSettings.initialPrompt,
-        audio: {
-          output: {
-            voice: currentSettings.voice ?? 'echo',
-          },
-        },
-        ...(enabledTools.length > 0 && { tools: enabledTools }),
-      };
-
-      const body = new FormData();
-      body.set('sdp', offerSdp);
-      body.set('session', JSON.stringify(sessionConfig));
-      const response = await fetch('https://api.openai.com/v1/realtime/calls', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${currentSettings.apiKey}`,
-        },
-        body,
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Failed to create realtime call: ${text}`);
-      }
-
-      const answerSdp = await response.text();
-      const answer = { type: 'answer', sdp: answerSdp } as RTCSessionDescriptionInit;
-      await pc.setRemoteDescription(answer);
-
-      dc.onopen = () => {
-        console.log('WebRTC data channel open');
-        autoReconnectRef.current = true; // session is live — enable auto-reconnect on drop
-
-        const allFunctions = dynamicState.loaded ? dynamicState.allFunctions : FUNCTION_REGISTRY;
-        const enabledTools = allFunctions
-          .filter((fn) => currentSettings.enabledFunctions.includes(fn.name))
-          .map((fn) => fn.tool);
-
-        const sessionConfig = {
-          type: 'session.update',
-          session: {
-            voice: currentSettings.voice,
-            instructions:
-              currentSettings.initialPrompt +
-              '\n\nDo not call navigate_to_page as part of a greeting or on your own initiative — only call it when the user explicitly asks to go to a different page.',
-            ...(enabledTools.length > 0 && { tools: enabledTools }),
-          },
-        };
-
-        dc.send(JSON.stringify(sessionConfig));
-        sessionStartTimeRef.current = Date.now();
-        setStatus('active');
-
-        // Inject any photos already on the HUD into the fresh session
-        if (photosRef.current.length > 0) {
-          injectPhotosIntoSession(photosRef.current);
-        }
-      };
-
-      // Accumulate streamed function call arguments
-      const pendingCalls: Record<string, { name: string; args: string }> = {};
-
-      dc.onmessage = async (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          if (data.type === 'error') {
-            console.error('OpenAI Error:', data.error);
-          }
-
-          // Feed the COMMS LOG transcript widget with Jarvis's spoken replies
-          if (data.type === 'response.audio_transcript.done' && typeof data.transcript === 'string') {
-            dispatchTranscript('jarvis', data.transcript);
-          }
-          if (data.type === 'conversation.item.input_audio_transcription.completed' && typeof data.transcript === 'string') {
-            dispatchTranscript('user', data.transcript);
-          }
-
-          // Accumulate argument deltas
-          if (data.type === 'response.function_call_arguments.delta') {
-            const id = data.call_id as string;
-            if (!pendingCalls[id]) {
-              pendingCalls[id] = { name: data.name ?? '', args: '' };
-            }
-            pendingCalls[id].args += data.delta ?? '';
-          }
-
-          // Execute when fully received
-          if (data.type === 'response.function_call_arguments.done') {
-            const id = data.call_id as string;
-            const fnName = data.name as string;
-            const rawArgs = data.arguments as string;
-
-            const fn = dynamicGetFunctionByNameRef.current(fnName);
-            if (!fn) return;
-
-            let parsedArgs: Record<string, unknown> = {};
-            try { parsedArgs = JSON.parse(rawArgs || '{}'); } catch { /* empty args */ }
-
-            // Block unsolicited navigation calls in the first 6 seconds after
-            // a session connects. This prevents the model from navigating to
-            // "home" as part of its automatic reconnect greeting, which was
-            // causing the app to jump back to the home page and reset.
-            const msSinceSessionStart = Date.now() - sessionStartTimeRef.current;
-            if (fnName === 'navigate_to_page' && msSinceSessionStart < 6000) {
-              console.warn('[Jarvis] Blocked early navigate_to_page call (auto-reconnect guard). Args:', parsedArgs);
-              dc.send(JSON.stringify({
-                type: 'conversation.item.create',
-                item: {
-                  type: 'function_call_output',
-                  call_id: id,
-                  output: JSON.stringify({ success: true, navigated_to: parsedArgs.page }),
-                },
-              }));
-              dc.send(JSON.stringify({ type: 'response.create' }));
-              delete pendingCalls[id];
-              return;
-            }
-
-            const result = (isInterfaceLocked() && !LOCK_ALLOWED_FUNCTIONS.has(fnName))
-              ? LOCKED_RESULT
-              : await fn.handler(parsedArgs);
-
-            // Surface function-level errors (e.g. ENOENT, missing API key, network failures)
-            // to the Error Terminal widget so they're visible without opening devtools.
-            const resultObj = result as Record<string, unknown> & { imageBase64?: string };
-            if (typeof resultObj?.error === 'string') {
-              emitError('function', `${fnName}(): ${resultObj.error}`, 'error');
-            }
-
-            // Extract imageBase64 if present so it's sent as a vision input, not raw text
-            const { imageBase64, ...textResult } = resultObj;
-
-            // Send function result back
-            dc.send(JSON.stringify({
-              type: 'conversation.item.create',
-              item: {
-                type: 'function_call_output',
-                call_id: id,
-                output: JSON.stringify(textResult),
-              },
-            }));
-
-            // If the function returned an image, inject it as a vision message so the model can see it
-            if (imageBase64) {
-              dc.send(JSON.stringify({
-                type: 'conversation.item.create',
-                item: {
-                  type: 'message',
-                  role: 'user',
-                  content: [
-                    {
-                      type: 'input_image',
-                      image_url: `data:image/jpeg;base64,${imageBase64}`,
-                    },
-                  ],
-                },
-              }));
-            }
-
-            // Ask model to continue responding
-            dc.send(JSON.stringify({ type: 'response.create' }));
-
-            if (fnName !== 'control_hud' && fnName !== 'show_hud_text') sfx('notification', 0.6);
-            delete pendingCalls[id];
-          }
-        } catch (error) {
-          console.error('Error processing message:', error);
-        }
-      };
-
-      dc.onerror = () => {
-        console.error("Data channel error");
-        setStatus('error');
-      };
-
-    } catch (error) {
-      console.error('Error starting realtime:', error);
-      window.electron?.setWakeWordMicInUse?.(false);
-      setStatus('error');
-      setLastError(error instanceof Error ? error.message : String(error));
+  function stopVoiceMetering() {
+    if (voiceMeterRef.current) {
+      clearInterval(voiceMeterRef.current);
+      voiceMeterRef.current = null;
     }
+  }
+
+  /**
+   * Buys each subsequent minute while a conversation is open.
+   *
+   * The first minute was paid for when the token was minted. A conversation can
+   * then run for as long as the user keeps talking, so without this one purchased
+   * minute would cover an afternoon. A refusal is the account running out, which
+   * ends the call rather than letting it continue unpaid.
+   */
+  function startVoiceMetering() {
+    stopVoiceMetering();
+    voiceMeterRef.current = setInterval(async () => {
+      const beat = await window.electron?.cloud?.voiceHeartbeat(1);
+      if (beat && !beat.ok) {
+        console.warn('[voice] Out of minutes, ending the conversation:', beat.error);
+        setLastError(beat.error ?? 'You have used all of this month\u2019s voice minutes.');
+        disconnect();
+      }
+    }, 60_000);
   }
 
   async function startElevenLabs(currentSettings = settings) {
@@ -1148,24 +928,49 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
 
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const agentId = currentSettings.elevenLabsAgentId?.trim();
-      if (!agentId) {
-        console.warn('No ElevenLabs Agent ID configured — add one in Settings.');
+      // The account buys the conversation. The main process spends a voice
+      // minute and hands back a token good for this one call — the ElevenLabs
+      // key and the agent id both stay on the server, so an unpacked copy of
+      // this app cannot talk to the agent for free.
+      const minted = await window.electron?.cloud?.voiceToken();
+      if (!minted?.ok) {
+        const message = minted?.error ?? 'Sign in to Jarvis to use your voice.';
+        console.warn('[voice] Could not get a conversation token:', message);
         window.electron?.setWakeWordMicInUse?.(false);
         setStatus('idle');
+        setLastError(message);
+        return;
+      }
+
+      const conversationToken = (minted.data as { token?: string } | null)?.token;
+      if (!conversationToken) {
+        window.electron?.setWakeWordMicInUse?.(false);
+        setStatus('idle');
+        setLastError('The account server did not return a voice token.');
         return;
       }
 
       const overrideAgent: Record<string, unknown> = {};
-      if (currentSettings.initialPrompt) overrideAgent.prompt = { prompt: currentSettings.initialPrompt };
+      // Only override the agent's prompt when the user has actually written their
+      // own. Sending the stock default would replace the far richer prompt
+      // configured on the ElevenLabs agent — including its tool guidance.
+      const localPrompt = currentSettings.initialPrompt?.trim();
+      if (localPrompt && localPrompt !== DEFAULT_SETTINGS.initialPrompt.trim()) {
+        overrideAgent.prompt = { prompt: localPrompt };
+      }
       if (currentSettings.elevenLabsFirstMessage?.trim()) overrideAgent.firstMessage = currentSettings.elevenLabsFirstMessage.trim();
       const overrides = Object.keys(overrideAgent).length > 0 ? { agent: overrideAgent } : undefined;
 
       await elConversation.startSession({
-        agentId,
-        connectionType: 'websocket',
+        conversationToken,
+        // A conversation token is redeemed over WebRTC. This also gets us better
+        // audio handling than the websocket transport it replaces.
+        connectionType: 'webrtc',
+        dynamicVariables: await buildSessionVariables(),
         ...(overrides && { overrides }),
       });
+
+      startVoiceMetering();
     } catch (error) {
       console.error('Error starting ElevenLabs session:', error);
       window.electron?.setWakeWordMicInUse?.(false);
@@ -1175,11 +980,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
   }
 
   async function start(currentSettings = settings) {
-    if ((currentSettings.apiMode ?? 'openai') === 'elevenlabs') {
-      await startElevenLabs(currentSettings);
-    } else {
-      await startRealtime(currentSettings);
-    }
+    await startElevenLabs(currentSettings);
   }
 
   function disconnect() {
@@ -1189,6 +990,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     );
     // Mark intentional — prevents auto-reconnect from firing on this close
     autoReconnectRef.current = false;
+    stopVoiceMetering();
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -1277,39 +1079,30 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
   useEffect(() => {
     if (!dynamicState.loaded) return;
 
-    const mode = settings.apiMode ?? 'openai';
-    const shouldStart =
-      (mode === 'elevenlabs' && !!settings.elevenLabsAgentId?.trim()) ||
-      (mode === 'openai' && !!settings.apiKey);
-
+    // There is nothing left to check before connecting. Whether Jarvis may
+    // speak is the account's business now, and the answer comes back from the
+    // token request rather than from anything stored on this machine.
     console.log(
-      `%c[Jarvis] Auto-start effect fired at ${new Date().toLocaleTimeString()} — restartTrigger=${restartTrigger}, shouldStart=${shouldStart}, mode=${mode}`,
+      `%c[Jarvis] Auto-start effect fired at ${new Date().toLocaleTimeString()} — restartTrigger=${restartTrigger}`,
       'background:#1b2838;color:#66bb6a;font-weight:bold;padding:2px 6px;border-radius:3px'
     );
 
-    const startTimer = shouldStart
-      ? window.setTimeout(() => void start(settings), 0)
-      : null;
+    const startTimer = window.setTimeout(() => void start(settings), 0);
 
     return () => {
-      if (startTimer !== null) window.clearTimeout(startTimer);
+      window.clearTimeout(startTimer);
       disconnect();
     };
-  }, [settings.apiKey, settings.apiMode, restartTrigger, dynamicState.loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [restartTrigger, dynamicState.loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const handleSaveSettings = (newSettings: JarvisSettings) => {
     setSettings(newSettings);
     const serialised = JSON.stringify(newSettings);
     localStorage.setItem('jarvis_settings', serialised);
-    // Only write to server if at least one key credential is present, so a
-    // race-triggered blank save can never overwrite a good server config.
-    const hasCredentials =
-      (newSettings.apiMode === 'openai'      && !!newSettings.apiKey?.trim()) ||
-      (newSettings.apiMode === 'elevenlabs'  && !!newSettings.elevenLabsAgentId?.trim());
-    if (hasCredentials) {
-      saveServerSettings({ jarvis_settings: serialised });
-    }
+    // Settings hold no credentials now, so there is nothing a blank save could
+    // destroy and no reason to withhold it from the other clients on the LAN.
+    saveServerSettings({ jarvis_settings: serialised });
     setIsSettingsOpen(false);
     // Increment trigger so the auto-start effect re-runs with the new settings.
     // This avoids the race where a manual setTimeout races against the effect.
@@ -1624,8 +1417,6 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
                   </>
                 ) : status === 'idle' ? (
                   'Click status to activate'
-                ) : !settings.apiKey ? (
-                  'Click logo to configure API Key'
                 ) : null}
               </p>
               

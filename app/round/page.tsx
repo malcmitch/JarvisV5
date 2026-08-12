@@ -6,7 +6,6 @@ import { ConversationProvider, useConversation } from '@elevenlabs/react';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Settings {
-  elevenLabsAgentId?: string;
   elevenLabsFirstMessage?: string;
   initialPrompt?: string;
 }
@@ -188,10 +187,18 @@ function RoundDisplay() {
 
     const s = await loadSettings();
 
-    const agentId = s.elevenLabsAgentId?.trim();
-    if (!agentId) {
+    // The round display is a second window onto the same account, so it buys a
+    // conversation the same way the main app does. This only works inside
+    // Electron: a phone or tablet on the LAN has no signed-in main process to
+    // ask, which is why the error says what it says.
+    const minted = await window.electron?.cloud?.voiceToken();
+    const conversationToken = minted?.ok
+      ? (minted.data as { token?: string } | null)?.token
+      : undefined;
+
+    if (!conversationToken) {
       setStatus('error');
-      setError('No ElevenLabs Agent ID — save Settings in the main Jarvis app first.');
+      setError(minted?.error ?? 'Open Jarvis on this machine and sign in to use voice.');
       return;
     }
 
@@ -204,8 +211,8 @@ function RoundDisplay() {
       const overrides = Object.keys(overrideAgent).length > 0 ? { agent: overrideAgent } : undefined;
 
       await conv.startSession({
-        agentId,
-        connectionType: 'websocket',
+        conversationToken,
+        connectionType: 'webrtc',
         ...(overrides && { overrides }),
       });
     } catch (e) {

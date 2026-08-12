@@ -1,0 +1,58 @@
+{
+  "type": "client",
+  "name": "remember",
+  "description": "Save a durable fact about the user so you recall it in future conversations. Call this immediately and without asking permission whenever the user states a preference, a name, a routine, a device nickname, a measurement, a project detail, or says 'remember that', 'don't forget', or 'from now on'. Store one clean self-contained fact per call, written in third person about the user (for example 'Prefers the garage light at 40% after 10pm'). Do not use this for temporary task state or for anything the user asks you to keep private.",
+  "pre_tool_speech": "off",
+  "interruption_mode": "allow",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "text",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The single fact to remember, phrased as a short self-contained statement about the user in third person.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    },
+    {
+      "id": "category",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Which bucket this fact belongs to.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "enum": [
+        "identity",
+        "preference",
+        "home",
+        "hardware",
+        "project",
+        "routine",
+        "contact",
+        "general"
+      ],
+      "is_system_provided": false,
+      "required": false
+    },
+    {
+      "id": "importance",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "How important this fact is, from 0 to 1. Use 0.9 or higher for identity and safety-critical details, 0.5 for ordinary preferences, and 0.2 for trivia.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": false
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

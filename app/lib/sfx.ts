@@ -25,7 +25,16 @@ export type SFXName =
   | 'select_confirm'
   | 'slide1'
   | 'slide2'
-  | 'slide3';
+  | 'slide3'
+  | 'jarvis_simulating'
+  | 'jarvis_simulating_web_fluid'
+  | 'jarvis_failed'
+  | 'jarvis_success'
+  | 'jarvis_success_web_fluid'
+  | 'jarvis_active_ingredients'
+  | 'jarvis_intro_preferences'
+  | 'web_thwip'
+  | 'web_shooter';
 
 const FILE_MAP: Record<SFXName, string> = {
   intro_sfx:        '/assets/SFX/intro_sfx.mp3',
@@ -44,6 +53,15 @@ const FILE_MAP: Record<SFXName, string> = {
   slide1:           '/assets/SFX/slide.MP3',
   slide2:           '/assets/SFX/slide2.MP3',
   slide3:           '/assets/SFX/slide3.MP3',
+  jarvis_simulating: '/assets/SFX/jarvis-simulating.mp3',
+  jarvis_simulating_web_fluid: '/assets/SFX/jarvis-simulating-web-fluid.mp3',
+  jarvis_failed: '/assets/SFX/jarvis-failed.mp3',
+  jarvis_success: '/assets/SFX/jarvis-success.mp3',
+  jarvis_success_web_fluid: '/assets/SFX/jarvis-success-web-fluid-is-sufficiently-condu.mp3',
+  jarvis_active_ingredients: '/assets/SFX/jarvis-active-ingredient-xantham-gum-and-sodium.mp3',
+  jarvis_intro_preferences: '/assets/SFX/intro/jarvis-importing-all-preferences-from-home-inte.mp3',
+  web_thwip: '/assets/SFX/spiderman/spider-man-customized-web-thwip-sound-effect-1_ybmate.mp3',
+  web_shooter: '/assets/SFX/spiderman/web-shooter_OSQmyQI.mp3',
 };
 
 const SLIDE_SFX: SFXName[] = ['slide1', 'slide2', 'slide3'];
@@ -79,4 +97,29 @@ export function sfx(name: SFXName, volume = 1, rate = 1): void {
 export function sfxSlide(volume = 1): void {
   const pick = SLIDE_SFX[Math.floor(Math.random() * SLIDE_SFX.length)];
   sfx(pick, volume);
+}
+
+/** Play an SFX and resolve when it finishes (fresh Audio instance — safe for voice lines). */
+export function playSfxAwait(name: SFXName, volume = 1): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve();
+  return new Promise((resolve) => {
+    try {
+      const audio = new Audio(FILE_MAP[name]);
+      audio.volume = Math.max(0, Math.min(1, volume));
+      const done = () => {
+        audio.removeEventListener('ended', done);
+        audio.removeEventListener('error', done);
+        resolve();
+      };
+      audio.addEventListener('ended', done);
+      audio.addEventListener('error', done);
+      void audio.play().catch(() => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
+export function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

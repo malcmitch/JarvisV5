@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { FUNCTION_REGISTRY, JarvisFunction } from '../lib/functions';
 import { sfx } from '../lib/sfx';
 import { hashPin, verifyPin } from '../lib/pin';
+import type { JarvisAuthState, JarvisCreditStatus } from '../window-electron';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -22,11 +23,134 @@ export type JarvisPosition = 'center' | 'bottom-left' | 'bottom-right' | 'top-le
 
 export type RealtimeModel = 'gpt-realtime-2' | 'gpt-realtime-1.5' | 'gpt-realtime-mini';
 
+/**
+ * Account status, and the way back in.
+ *
+ * The sign-in screen only appears when Jarvis is signed out, so without this
+ * there is nowhere to sign in from once you are in — and nowhere to see why
+ * Jarvis has stopped talking, which is nearly always an empty balance rather
+ * than anything configured wrongly.
+ */
+function AccountSection() {
+  const [state, setState] = useState<JarvisAuthState | null>(null);
+  const [credits, setCredits] = useState<JarvisCreditStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const auth = typeof window !== 'undefined' ? window.electron?.auth : undefined;
+
+  useEffect(() => {
+    if (!auth) return;
+    void auth.getState().then(setState);
+    return auth.onChanged(setState);
+  }, [auth]);
+
+  useEffect(() => {
+    if (!auth || !state?.signedIn) return;
+    let cancelled = false;
+    void auth.credits().then((result) => {
+      if (!cancelled && result.ok && result.data) setCredits(result.data);
+    });
+    return () => { cancelled = true; };
+  }, [auth, state?.signedIn]);
+
+  // The LAN clients — phones, tablets — have no IPC bridge to sign in through.
+  if (!auth) {
+    return (
+      <div className="space-y-2">
+        <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Account</label>
+        <p className="text-xs text-cyan-700">
+          Sign in from the Jarvis desktop app. This browser view uses whichever account
+          that machine is signed in to.
+        </p>
+      </div>
+    );
+  }
+
+  const bucket = (label: string, data?: { limit: number | null; used: number; remaining: number | null }) => {
+    if (!data) return null;
+    return (
+      <div className="flex justify-between text-xs">
+        <span className="text-cyan-700">{label}</span>
+        <span className="text-cyan-300 font-mono">
+          {data.limit === null ? 'unlimited' : `${data.remaining ?? 0} left of ${data.limit}`}
+        </span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-3 pt-2 border-t border-cyan-500/10">
+      <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Account</label>
+
+      {state?.signedIn ? (
+        <>
+          <p className="text-xs text-cyan-300 font-mono break-all">{state.user?.email}</p>
+
+          {credits && (
+            <div className="space-y-1.5 pl-2 border-l border-cyan-500/20">
+              {bucket('Voice minutes', credits.credits?.voice_minutes)}
+              {bucket('AI requests', credits.credits?.ai_request)}
+              {!credits.entitled && (
+                <p className="text-xs text-amber-400/80">No active plan on this account.</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => { sfx('select', 0.5); void auth.openAccount(); }}
+              className="px-3 py-1.5 border border-cyan-500/30 rounded text-xs text-cyan-400 hover:border-cyan-500/60 transition-all uppercase tracking-wide"
+            >
+              Manage plan
+            </button>
+            <button
+              onClick={async () => { sfx('select', 0.5); await auth.signOut(); }}
+              className="px-3 py-1.5 border border-cyan-500/20 rounded text-xs text-cyan-600 hover:border-cyan-500/40 hover:text-cyan-400 transition-all uppercase tracking-wide"
+            >
+              Sign out
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-xs text-cyan-700">
+            Jarvis needs an account to speak and think. Signing in happens in your
+            browser, then brings you back here.
+          </p>
+          {state?.error && <p className="text-xs text-red-400/80">{state.error}</p>}
+          <div className="flex gap-2">
+            <button
+              disabled={busy || state?.pending}
+              onClick={async () => {
+                sfx('select', 0.5);
+                setBusy(true);
+                await auth.startLogin();
+                setBusy(false);
+              }}
+              className="px-3 py-1.5 border border-cyan-400/50 rounded text-xs text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 transition-all uppercase tracking-wide disabled:opacity-50"
+            >
+              {state?.pending ? 'Finishing…' : busy ? 'Opening browser…' : 'Sign in'}
+            </button>
+            <button
+              onClick={() => { sfx('select', 0.5); void auth.openSignup(); }}
+              className="px-3 py-1.5 border border-cyan-500/20 rounded text-xs text-cyan-600 hover:border-cyan-500/40 hover:text-cyan-400 transition-all uppercase tracking-wide"
+            >
+              Create account
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export interface JarvisSettings {
+  /**
+   * Retained only so settings saved before voice moved to the account can be
+   * migrated. Voice is always ElevenLabs now, paid for by the signed-in account.
+   */
   apiMode: 'openai' | 'elevenlabs';
-  apiKey: string;
   realtimeModel?: RealtimeModel;
-  elevenLabsAgentId?: string;
   elevenLabsFirstMessage?: string;
   voice: 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse' | 'marin' | 'cedar';
   initialPrompt: string;
@@ -52,6 +176,14 @@ export interface JarvisSettings {
   ambientAutoMinutes?: number;
   /** Accent hex color used when theme === 'custom' */
   customAccent?: string;
+  /** Skip the homescreen startup intro animation */
+  disableIntroAnimation?: boolean;
+  /**
+   * Which memory bucket Jarvis reads and writes. Give each person on a shared
+   * install their own value to keep their remembered facts separate. Empty
+   * means everyone shares the `default` bucket.
+   */
+  memoryAccountId?: string;
 }
 
 const VISUALIZERS: { id: JarvisVisualizer; name: string; desc: string }[] = [
@@ -224,34 +356,6 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
           {/* Jarvis Tab */}
           {activeTab === 'jarvis' && (
             <>
-              {/* API Mode switcher */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice Engine</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['openai', 'elevenlabs'] as const).map((mode) => {
-                    const active = (settings.apiMode ?? 'openai') === mode;
-                    const labels = { openai: 'OpenAI Realtime', elevenlabs: 'ElevenLabs' };
-                    const descs  = { openai: 'GPT Realtime 2 via WebRTC', elevenlabs: 'Jarvis Agent via WebRTC' };
-                    return (
-                      <button
-                        key={mode}
-                        onClick={() => { sfx('select', 0.5); setSettings({ ...settings, apiMode: mode }); }}
-                        className={`flex flex-col items-start px-3 py-2.5 border rounded text-left transition-all ${
-                          active
-                            ? 'bg-cyan-500/20 border-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
-                            : 'bg-transparent border-cyan-500/20 hover:border-cyan-500/50'
-                        }`}
-                      >
-                        <span className={`text-xs font-bold uppercase tracking-wide ${active ? 'text-cyan-300' : 'text-cyan-600'}`}>
-                          {labels[mode]}
-                        </span>
-                        <span className="text-[10px] text-white/30 mt-0.5">{descs[mode]}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
               {/* Wake Word Configuration */}
               <div className="space-y-3 pt-2 border-t border-cyan-500/10">
                 <div className="flex items-center justify-between">
@@ -304,63 +408,10 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                 )}
               </div>
 
-              {/* OpenAI fields */}
-              {(settings.apiMode ?? 'openai') === 'openai' && (
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">OpenAI API Key</label>
-                  <input
-                    type="password"
-                    value={settings.apiKey}
-                    onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })}
-                    placeholder="sk-..."
-                    className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
-                  />
-                </div>
-              )}
+              <AccountSection />
 
-              {(settings.apiMode ?? 'openai') === 'openai' && (
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Realtime Model</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {([
-                      { id: 'gpt-realtime-2',    label: 'Realtime 2',    desc: 'Reasoning' },
-                      { id: 'gpt-realtime-1.5',  label: 'Realtime 1.5',  desc: 'Best voice' },
-                      { id: 'gpt-realtime-mini', label: 'Realtime Mini', desc: 'Cost-efficient' },
-                    ] as { id: RealtimeModel; label: string; desc: string }[]).map((m) => {
-                      const active = (settings.realtimeModel ?? 'gpt-realtime-2') === m.id;
-                      return (
-                        <button
-                          key={m.id}
-                          onClick={() => { sfx('select', 0.5); setSettings({ ...settings, realtimeModel: m.id }); }}
-                          className={`flex flex-col items-center px-2 py-2 border rounded text-xs transition-all ${
-                            active
-                              ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
-                              : 'bg-transparent border-cyan-500/20 text-cyan-600 hover:border-cyan-500/50 hover:text-cyan-400'
-                          }`}
-                        >
-                          <span className="font-bold uppercase tracking-wide">{m.label}</span>
-                          <span className="text-[10px] opacity-70 mt-0.5">{m.desc}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* ElevenLabs fields */}
-              {(settings.apiMode ?? 'openai') === 'elevenlabs' && (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Agent ID</label>
-                    <input
-                      type="text"
-                      value={settings.elevenLabsAgentId ?? ''}
-                      onChange={(e) => setSettings({ ...settings, elevenLabsAgentId: e.target.value })}
-                      placeholder="agent_..."
-                      className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
-                    />
-                    <p className="text-xs text-cyan-700">Found in your ElevenLabs agent dashboard.</p>
-                  </div>
+              {/* Voice runs on the signed-in Jarvis account — no keys to enter. */}
+              <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">First Message <span className="text-cyan-700 normal-case font-normal">(optional override)</span></label>
                     <input
@@ -372,13 +423,24 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                     />
                     <p className="text-xs text-cyan-700">Leave empty to use the agent&apos;s default greeting.</p>
                   </div>
-                </div>
-              )}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Memory Account <span className="text-cyan-700 normal-case font-normal">(optional)</span></label>
+                    <input
+                      type="text"
+                      value={settings.memoryAccountId ?? ''}
+                      onChange={(e) => setSettings({ ...settings, memoryAccountId: e.target.value })}
+                      placeholder="kevin"
+                      className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
+                    />
+                    <p className="text-xs text-cyan-700">
+                      Names the memory bucket Jarvis remembers you in. Give each person their own value to keep separate memories on a shared machine. Empty shares one <span className="font-mono">default</span> bucket.
+                    </p>
+                  </div>
+              </div>
 
-              {/* Voice Interface — OpenAI only */}
-              {(settings.apiMode ?? 'openai') === 'openai' && (
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice Interface</label>
+              {/* Only affects the Audio Lab's OpenAI comparison voices. */}
+              <div className="space-y-2">
+                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Audio Lab Voice</label>
                   <div className="grid grid-cols-3 gap-2">
                     {(['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar'] as const).map((voice) => (
                       <button
@@ -394,8 +456,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                       </button>
                     ))}
                   </div>
-                </div>
-              )}
+              </div>
 
               <div className="space-y-2">
                 <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice Visualizer</label>
@@ -804,6 +865,61 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Startup intro */}
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Startup Intro</label>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-white/70">Disable intro animation</p>
+                    <p className="text-[10px] text-cyan-700 mt-0.5">
+                      Skip the boot sequence on homescreen startup. Takes effect next session.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sfx('click_sfx', 0.4);
+                      setSettings({ ...settings, disableIntroAnimation: !settings.disableIntroAnimation });
+                    }}
+                    className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                      settings.disableIntroAnimation
+                        ? 'bg-cyan-500'
+                        : 'bg-cyan-900/50 border border-cyan-500/30'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                        settings.disableIntroAnimation ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* Setup guide replay */}
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Setup Guide</label>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-white/70">Replay first-run wizard</p>
+                    <p className="text-[10px] text-cyan-700 mt-0.5">
+                      Walk through voice engine setup, location, and the quick-reference guide again.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sfx('select', 0.5);
+                      onClose();
+                      window.dispatchEvent(new Event('jarvis:show-onboarding'));
+                    }}
+                    className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/50 rounded text-cyan-300 uppercase tracking-wider font-bold text-xs transition-all shrink-0"
+                  >
+                    Replay
+                  </button>
+                </div>
               </div>
 
               {/* Ambient standby */}

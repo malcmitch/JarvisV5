@@ -55,6 +55,15 @@ const PAGE_ITEMS: { page: string; label: string; icon: React.ReactNode }[] = [
   { page: 'webshooter', label: 'Web Lab', icon: (
     <svg {...ICON_PROPS}><rect x="4" y="8" width="16" height="8" rx="2.5" /><circle cx="12" cy="12" r="2" /><path d="M12 4v2M12 18v2M4.5 5.5 6 7M19.5 5.5 18 7" /></svg>
   ) },
+  { page: 'onewheel', label: 'OneWheel', icon: (
+    <svg {...ICON_PROPS}><circle cx="12" cy="12" r="7.5" /><path d="M4.5 12h15M12 4.5v15" /><circle cx="12" cy="12" r="2.2" /></svg>
+  ) },
+  { page: 'social', label: 'Social', icon: (
+    <svg {...ICON_PROPS}><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="3" width="8" height="8" rx="1" /><rect x="3" y="13" width="8" height="8" rx="1" /><rect x="13" y="13" width="8" height="8" rx="1" /></svg>
+  ) },
+  { page: 'audio-test', label: 'Audio Lab', icon: (
+    <svg {...ICON_PROPS}><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4" /></svg>
+  ) },
   { page: 'round-display', label: 'Round HUD', icon: (
     <svg {...ICON_PROPS}><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="4" /></svg>
   ) },

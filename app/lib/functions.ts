@@ -31,6 +31,25 @@ export function readToolkitOverrides(): {
   }
 }
 
+/**
+ * Which memory bucket this client writes to. Set `memoryAccountId` in Settings
+ * to give each person their own memories on a shared Jarvis install; everything
+ * falls back to a single `default` bucket when unset.
+ */
+export function getMemoryAccountId(): string {
+  if (typeof window === 'undefined') return 'default';
+  try {
+    const raw = localStorage.getItem('jarvis_settings');
+    if (raw) {
+      const s = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof s.memoryAccountId === 'string' && s.memoryAccountId.trim()) {
+        return s.memoryAccountId.trim().toLowerCase();
+      }
+    }
+  } catch { /* fall through to default */ }
+  return 'default';
+}
+
 export interface JarvisFunction {
   name: string;
   label: string;
@@ -226,15 +245,11 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       const platformHint = `[Platform: ${platform}] `;
       const enrichedTask = platformHint + task;
 
-      const stored = localStorage.getItem('jarvis_settings');
-      const apiKey = stored ? JSON.parse(stored).apiKey : '';
-      if (!apiKey) return { error: 'No API key found in settings.' };
-
       try {
         const res = await fetch('/api/computer-use', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task: enrichedTask, apiKey, ...readToolkitOverrides() }),
+          body: JSON.stringify({ task: enrichedTask, ...readToolkitOverrides() }),
         });
         return await res.json();
       } catch (err) {
@@ -281,17 +296,10 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         // Show scanning widget with the captured camera image underneath
         dispatch({ state: 'scanning', capturedBase64: imageBase64 });
 
-        const stored = localStorage.getItem('jarvis_settings');
-        const apiKey = stored ? JSON.parse(stored).apiKey : '';
-        if (!apiKey) {
-          dispatch({ state: 'error', error: 'No API key found in settings.' });
-          return { error: 'No API key.' };
-        }
-
         const res = await fetch('/api/xray', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64, apiKey }),
+          body: JSON.stringify({ imageBase64 }),
         });
 
         const data = await res.json();
@@ -361,10 +369,6 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       const prompt = String(args.prompt ?? '').trim();
       if (!prompt) return { error: 'No prompt provided.' };
 
-      const stored = localStorage.getItem('jarvis_settings');
-      const apiKey = stored ? JSON.parse(stored).apiKey : '';
-      if (!apiKey) return { error: 'No API key found in settings.' };
-
       const moduleId =
         typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? crypto.randomUUID()
@@ -400,7 +404,6 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt,
-            apiKey,
             size: args.size,
             quality: args.quality,
             referenceImageBase64,
@@ -505,17 +508,13 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       const description = args.description as string;
       if (!description) return { error: 'No print description provided.' };
 
-      const stored = localStorage.getItem('jarvis_settings');
-      const apiKey = stored ? JSON.parse(stored).apiKey : '';
-      if (!apiKey) return { error: 'No API key found in settings.' };
-
       const task = `${description}. Open Bambu Studio, go to the online models tab. Find a model matching the user's description. Pick a relevant one. Load the model. Check the available printers using the device tab at the top. Find one not in use. Set the printer. Slice the file, and send it to the correct printer. If you get stuck with an incompatible printer error, then select the drop down and choose the printer you selected. Do not ask follow-up questions unless the file is missing or there are zero available printers. Make reasonable choices and complete the print job. If there are multiple idle printers, choose the first idle one. Stop only after the print job has been successfully sent, or if the file cannot be found, no printer is available, or Bambu Studio blocks the job with an error that cannot be resolved.`;
 
       try {
         const res = await fetch('/api/computer-use', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task, apiKey, ...readToolkitOverrides() }),
+          body: JSON.stringify({ task, ...readToolkitOverrides() }),
         });
         return await res.json();
       } catch (err) {
@@ -783,7 +782,8 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         "Widget names: 'clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image', 'terminal', " +
         "'agenda' (upcoming calendar events), 'todo' (today's task list), 'stocks' (market ticker), 'headlines' (rotating news), " +
         "'timer' (countdowns and reminders), 'weather-radar' (animated precipitation map), 'camera-feed' (live webcam), " +
-        "'transcript' (conversation log), 'uptime' (host reachability monitor), 'orbit' (ISS tracker + sun/moon). " +
+        "'transcript' (conversation log), 'uptime' (host reachability monitor), 'orbit' (ISS tracker + sun/moon), " +
+        "'calculator' (futuristic compute / arithmetic pad). " +
         "IMPORTANT: The 'map' widget here is a small HUD minimap overlay — it is NOT the full Jarvis Map page. " +
         "If the user asks to 'open the map', 'go to the map page', 'show the map', 'navigate on a map', or wants to fly to a location/draw a route, use map_command instead. " +
         "When opening the 'text' widget, optionally supply text_content and title. " +
@@ -800,7 +800,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
             type: 'string',
             enum: [
               'clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image', 'terminal',
-              'agenda', 'todo', 'stocks', 'headlines', 'timer', 'weather-radar', 'camera-feed', 'transcript', 'uptime', 'orbit',
+              'agenda', 'todo', 'stocks', 'headlines', 'timer', 'weather-radar', 'camera-feed', 'transcript', 'uptime', 'orbit', 'calculator',
             ],
             description: "The widget to open or close. Required for 'open' and 'close' commands. Ignored for 'clear' and 'reset'. Use 'terminal' to show the error terminal.",
           },
@@ -1095,7 +1095,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       type: 'function',
       name: 'navigate_to_page',
       description:
-        'Navigate Jarvis to a different page. Use for "home", "news", "calendar", "home-assistant", "3d-printers", "music", "spiderman", "manufacturing", "webshooter", or "round-display". ' +
+        'Navigate Jarvis to a different page. Use for "home", "news", "calendar", "home-assistant", "3d-printers", "music", "spiderman", "manufacturing", "webshooter", "onewheel", "social", "audio-test", or "round-display". ' +
         '"news" opens the live news feed with streaming video and market data. ' +
         '"calendar" opens the calendar and task planner. ' +
         '"home-assistant" opens the smart home control panel for lights, switches, climate, and more. ' +
@@ -1104,6 +1104,9 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         '"spiderman" opens the Spider-Man suit armory — a 3D holographic carousel of Spider-Man suits the user can browse and inspect. Use when the user mentions Spider-Man, suits, or the armory. ' +
         '"manufacturing" opens the fabrication bay where the user drags a 3D component onto a printer, laser, or CNC machine to build it. Use when the user mentions manufacturing, fabrication, or building a part. ' +
         '"webshooter" opens the web-shooter designer lab — a holographic web-shooter base where the user designs taser web, web fluid, web grenade, and acid web cartridges and loads them onto the shooter. Use when the user mentions web shooters, web fluid, cartridges, or the web lab. ' +
+        '"onewheel" opens Project OneWheel — a holographic Onewheel Pint with modular add-ons (Unitree Go1 dog mount and mag-lock boots). Use when the user mentions Onewheel, Project OneWheel, or the Onewheel page. ' +
+        '"social" opens the Social Command dashboard — four embedded browsers (Instagram, TikTok, Facebook, YouTube) plus an AI comment-reply engine. Use when the user mentions social media, comment replies, Instagram, TikTok, Facebook, or YouTube dashboard. ' +
+        '"audio-test" opens the Audio Lab — type text for Jarvis to speak and save it as an MP3, switching between OpenAI and ElevenLabs. Use when the user wants to test voice, generate speech, or export audio. ' +
         '"round-display" switches to a full-screen circular Jarvis visualizer optimised for round displays. ' +
         '"home" returns to the main Jarvis home screen. ' +
         'NEVER use this for map or location requests — use map_command instead.',
@@ -1112,8 +1115,8 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         properties: {
           page: {
             type: 'string',
-            enum: ['home', 'news', 'calendar', 'home-assistant', '3d-printers', 'music', 'spiderman', 'manufacturing', 'webshooter', 'round-display'],
-            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner. "home-assistant" = smart home control panel. "3d-printers" = Bambu Lab 3D printer dashboard. "music" = full-screen music player. "spiderman" = Spider-Man suit armory with a 3D holographic suit carousel. "manufacturing" = fabrication bay for building 3D components on printers/lasers/CNC. "webshooter" = web-shooter designer lab for building taser web / web fluid / web grenade / acid web cartridges. "round-display" = full-screen circular visualizer for round displays.',
+            enum: ['home', 'news', 'calendar', 'home-assistant', '3d-printers', 'music', 'spiderman', 'manufacturing', 'webshooter', 'onewheel', 'social', 'audio-test', 'round-display'],
+            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner. "home-assistant" = smart home control panel. "3d-printers" = Bambu Lab 3D printer dashboard. "music" = full-screen music player. "spiderman" = Spider-Man suit armory with a 3D holographic suit carousel. "manufacturing" = fabrication bay for building 3D components on printers/lasers/CNC. "webshooter" = web-shooter designer lab for building taser web / web fluid / web grenade / acid web cartridges. "onewheel" = Project OneWheel holographic deck with Unitree Go1 and mag-lock boot add-ons. "social" = Social Command dashboard with Instagram/TikTok/Facebook/YouTube browsers and AI comment replies. "audio-test" = Audio Lab for typing speech scripts, previewing, and saving MP3s via OpenAI or ElevenLabs. "round-display" = full-screen circular visualizer for round displays.',
           },
         },
         required: ['page'],
@@ -1285,6 +1288,15 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           navigated_to: page,
           instruction:
             'The Spider-Man suit armory is now open — the suits are filing onto their holographic podiums. Available suits: Homemade Suit (Homecoming), Tech Suit (Homecoming), Iron Spider (Infinity War), Amazing Suit (TASM 2), and Symbiote Suit (Spider-Man 2 PS5). The user can swipe through them and tap one to inspect and spin it. Briefly announce the armory is ready.',
+        };
+      }
+
+      if (page === 'audio-test') {
+        return {
+          success: true,
+          navigated_to: page,
+          instruction:
+            'The Audio Lab is open. The user can type a script, switch between OpenAI and ElevenLabs, preview speech, and save it as an MP3. Briefly confirm the lab is ready.',
         };
       }
 
@@ -2026,6 +2038,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         '"transcript" = live conversation log. ' +
         '"uptime" = host reachability monitor (optionally pass hosts like "192.168.1.1:80,github.com:443"). ' +
         '"orbit" = ISS tracker with sunrise/sunset and moon phase. ' +
+        '"calculator" = futuristic arithmetic / compute pad. ' +
         '"ha-device" = Home Assistant device card showing multiple devices. ' +
         '"ha-toggle" = a single bare glowing power button for ONE specific device. ' +
         'IMPORTANT — when adding an "ha-toggle": ALWAYS call home_assistant_command with command=list_devices FIRST to get the real entity IDs and friendly names. Then pass entity_ids=[the exact entity_id] and label=the short human name (e.g. "Light 2") to add_home_widget. This ensures the correct device is targeted and the button shows a clean label. ' +
@@ -2044,7 +2057,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
             type: 'string',
             enum: [
               'tv', 'printer', 'weather-home', 'weather-radar', 'agenda', 'todo', 'stocks', 'headlines',
-              'timer', 'camera-feed', 'transcript', 'uptime', 'orbit', 'ha-device', 'ha-toggle',
+              'timer', 'camera-feed', 'transcript', 'uptime', 'orbit', 'calculator', 'ha-device', 'ha-toggle',
             ],
             description: 'Which widget to add or remove. Use "ha-toggle" for a single glowing power button for one specific device.',
           },
@@ -2127,6 +2140,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           'weather-radar': 'Weather Radar', 'agenda': 'Agenda', 'todo': 'Tasks', 'stocks': 'Markets',
           'headlines': 'Headlines', 'timer': 'Timers', 'camera-feed': 'Camera Feed',
           'transcript': 'Comms Log', 'uptime': 'Host Monitor', 'orbit': 'Orbital Tracker',
+          'calculator': 'Compute',
         };
         const label = title ?? widgetNames[widgetType] ?? widgetType;
         return {
@@ -2579,6 +2593,160 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         success: true,
         message: action === 'exit' ? 'Exited ambient mode.' : 'Ambient standby engaged. Any input wakes the interface.',
       };
+    },
+  },
+  {
+    name: 'remember',
+    label: 'Remember',
+    description: 'Let Jarvis save durable facts about you that survive between conversations',
+    tool: {
+      type: 'function',
+      name: 'remember',
+      description:
+        'Save a durable fact about the user so it is available in future conversations. ' +
+        'Call immediately when the user states a preference, a name, a routine, a device nickname, a measurement, ' +
+        'or says "remember that" / "from now on". Store one clean self-contained fact per call, in third person.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: {
+            type: 'string',
+            description: 'The single fact to remember, as a short self-contained statement about the user.',
+          },
+          category: {
+            type: 'string',
+            enum: ['identity', 'preference', 'home', 'hardware', 'project', 'routine', 'contact', 'general'],
+            description: 'Which bucket this fact belongs to.',
+          },
+          importance: {
+            type: 'number',
+            description: '0-1. Use 0.9+ for identity and safety-critical details, 0.5 for ordinary preferences.',
+          },
+        },
+        required: ['text'],
+      },
+    },
+    handler: async (args) => {
+      const text = typeof args.text === 'string' ? args.text.trim() : '';
+      if (!text) return { error: 'Nothing to remember.' };
+      try {
+        const res = await fetch('/api/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'remember',
+            accountId: getMemoryAccountId(),
+            text,
+            category: args.category,
+            importance: args.importance,
+          }),
+        });
+        const data = await res.json() as { ok?: boolean; error?: string; total?: number };
+        if (!res.ok || !data.ok) return { error: data.error ?? 'Could not save that memory.' };
+        window.dispatchEvent(new CustomEvent('jarvis:memory-changed'));
+        return { success: true, message: `Noted. ${data.total} memories stored.` };
+      } catch (e) {
+        return { error: `Memory store unreachable: ${String(e)}` };
+      }
+    },
+  },
+  {
+    name: 'recall',
+    label: 'Recall',
+    description: 'Let Jarvis search what he remembers about you before answering',
+    tool: {
+      type: 'function',
+      name: 'recall',
+      description:
+        'Search everything previously remembered about the user. Call before answering any question that depends on ' +
+        'personal context not stated in this conversation, and before asking the user to repeat something.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'What to look for, in a few keywords.',
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of memories to return. Defaults to 5.',
+          },
+        },
+        required: ['query'],
+      },
+    },
+    handler: async (args) => {
+      const query = typeof args.query === 'string' ? args.query : '';
+      try {
+        const res = await fetch('/api/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'recall',
+            accountId: getMemoryAccountId(),
+            query,
+            limit: args.limit,
+          }),
+        });
+        const data = await res.json() as {
+          ok?: boolean; error?: string; count?: number; summary?: string;
+          memories?: { text: string; category: string }[];
+        };
+        if (!res.ok || !data.ok) return { error: data.error ?? 'Could not search memories.' };
+        return {
+          count: data.count ?? 0,
+          memories: data.memories ?? [],
+          summary: data.summary ?? 'No matching memories.',
+        };
+      } catch (e) {
+        return { error: `Memory store unreachable: ${String(e)}` };
+      }
+    },
+  },
+  {
+    name: 'forget',
+    label: 'Forget',
+    description: 'Let Jarvis delete something he remembered when it is wrong or out of date',
+    tool: {
+      type: 'function',
+      name: 'forget',
+      description:
+        'Delete a previously remembered fact. Use when the user says "forget that", "that\'s wrong", or corrects a ' +
+        'recalled fact. When correcting, call forget for the old version then remember for the new one.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Keywords describing the memory to delete. The closest single match is removed.',
+          },
+        },
+        required: ['query'],
+      },
+    },
+    handler: async (args) => {
+      const query = typeof args.query === 'string' ? args.query : '';
+      if (!query) return { error: 'Specify what to forget.' };
+      try {
+        const res = await fetch('/api/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'forget',
+            accountId: getMemoryAccountId(),
+            query,
+          }),
+        });
+        const data = await res.json() as {
+          ok?: boolean; error?: string; removed?: number; forgot?: string[]; message?: string;
+        };
+        if (!res.ok || !data.ok) return { error: data.error ?? 'Could not forget that.' };
+        if (!data.removed) return { success: false, message: data.message ?? 'No matching memory found.' };
+        window.dispatchEvent(new CustomEvent('jarvis:memory-changed'));
+        return { success: true, message: `Forgotten: ${(data.forgot ?? []).join('; ')}` };
+      } catch (e) {
+        return { error: `Memory store unreachable: ${String(e)}` };
+      }
     },
   },
 ];

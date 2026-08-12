@@ -7,6 +7,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import * as THREE from 'three';
 import { PageHeader } from '../PageHeader';
 import { sfx } from '../../lib/sfx';
+import { WebFluidFormulaLab } from './WebFluidFormulaLab';
+import { WebshooterTryOn } from './WebshooterTryOn';
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 const BASE_URL = '/models/SpiderMan/WebShooters/webshooter_base.stl';
@@ -933,6 +935,8 @@ export function WebshooterPage({ onNavigateHome }: { onNavigateHome: () => void 
   // Cart drag-install
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
   const [hoverQuadrant, setHoverQuadrant] = useState<number | null>(null);
+  const [formulaLabOpen, setFormulaLabOpen] = useState(false);
+  const [tryOnOpen, setTryOnOpen] = useState(false);
   const leftCanvasRef = useRef<HTMLDivElement>(null);
 
   // Live projected screen positions (normalized) of the 4 slots, fed by HoloBase
@@ -1118,6 +1122,21 @@ export function WebshooterPage({ onNavigateHome }: { onNavigateHome: () => void 
             )}
           </div>
 
+          <button
+            type="button"
+            onClick={() => { sfx('select', 0.4); setTryOnOpen(true); }}
+            className="absolute top-4 right-6 z-10 px-6 py-2.5 font-mono text-[10px] uppercase tracking-[0.35em] transition-colors hover:text-white"
+            style={{
+              color: ACCENT,
+              border: `1px solid ${ACCENT}66`,
+              background: `${ACCENT_DIM}0.08)`,
+              boxShadow: `0 0 18px ${ACCENT_DIM}0.25)`,
+              clipPath: 'polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%)',
+            }}
+          >
+            Try On
+          </button>
+
           <div
             ref={leftCanvasRef}
             className="flex-1 min-h-0 cursor-grab active:cursor-grabbing"
@@ -1181,6 +1200,21 @@ export function WebshooterPage({ onNavigateHome }: { onNavigateHome: () => void 
                     style={{ background: i === typeIdx ? tt.color : 'rgba(255,255,255,0.2)', boxShadow: i === typeIdx ? `0 0 6px ${tt.color}` : 'none' }} />
                 ))}
               </div>
+              {type.id === 'v1' && (
+                <button
+                  type="button"
+                  onClick={() => { sfx('select', 0.4); setFormulaLabOpen(true); }}
+                  className="mt-2 px-4 py-1.5 font-mono text-[9px] uppercase tracking-[0.35em]"
+                  style={{
+                    color: type.color,
+                    border: `1px solid ${type.color}66`,
+                    background: `${type.color}14`,
+                    boxShadow: `0 0 14px ${type.color}22`,
+                  }}
+                >
+                  Open Lab
+                </button>
+              )}
             </div>
             <button onClick={() => cycle(1)} className="w-8 h-8 flex items-center justify-center font-mono text-lg transition-colors hover:text-white"
               style={{ color: ACCENT }}>
@@ -1334,6 +1368,18 @@ export function WebshooterPage({ onNavigateHome }: { onNavigateHome: () => void 
           </span>
         </div>
       )}
+
+      <AnimatePresence>
+        {formulaLabOpen && (
+          <WebFluidFormulaLab key="web-fluid-lab" onClose={() => setFormulaLabOpen(false)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {tryOnOpen && (
+          <WebshooterTryOn key="web-shooter-try-on" onClose={() => setTryOnOpen(false)} />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

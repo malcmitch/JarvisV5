@@ -19,6 +19,9 @@ import { spawn, ChildProcess } from 'child_process';
 import { networkInterfaces } from 'os';
 import { WakeWordService } from './wake-word';
 import { TouchInputService, TouchInputStatus } from './touch-input';
+import { SocialViewsService, SocialPlatformId, SocialBounds } from './social-views';
+import { handleDeepLink, registerAuthIpc, restoreSession } from './auth';
+import { startAiProxy, stopAiProxy } from './ai-proxy';
 
 const isDev = !app.isPackaged;
 const PORT = 3000;
@@ -89,12 +92,73 @@ if (isDev && process.platform === 'darwin' && app.dock) {
   app.dock.setIcon(path.join(__dirname, '..', 'buildfiles', 'icon.png'));
 }
 
+// ─────────────────────────── jarvis:// sign-in deep links ───────────────────
+//
+// The website finishes sign-in by opening jarvis://auth?code=…, which the OS
+// routes to this app. macOS delivers it to the running instance as 'open-url';
+// Windows and Linux instead launch a *second* copy with the URL in argv, so the
+// lock below is what turns that into a message to the instance already running.
+// It also stops two copies fighting over port 3000.
+
+// A link can arrive before the window exists — on Windows and Linux it is in the
+// argv of the very launch that starts the app. Hold it until there is something
+// to show the result in.
+let queuedDeepLink: string | null = null;
+
+if (isDev) {
+  // In development the executable is Electron itself, so the scheme has to point
+  // at this project rather than at the binary.
+  app.setAsDefaultProtocolClient('jarvis', process.execPath, [path.resolve(process.argv[1] ?? '.')]);
+} else {
+  app.setAsDefaultProtocolClient('jarvis');
+}
+
+function findDeepLink(argv: string[]): string | null {
+  return argv.find((arg) => arg.startsWith('jarvis://')) ?? null;
+}
+
+function deliverDeepLink(url: string | null) {
+  if (!url) return;
+  if (!appReady) {
+    queuedDeepLink = url;
+    return;
+  }
+  void handleDeepLink(url);
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    deliverDeepLink(findDeepLink(argv));
+  });
+
+  // macOS. Registered outside whenReady because a cold launch triggered by the
+  // link itself fires this before the app is ready.
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    deliverDeepLink(url);
+  });
+
+  queuedDeepLink = findDeepLink(process.argv);
+}
+
 let mainWindow: BrowserWindow | null = null;
 let desktopVisualWindow: BrowserWindow | null = null;
 let desktopHitboxWindow: BrowserWindow | null = null;
 let nextServer: ChildProcess | null = null;
+/** Points the Next server at the loopback AI bridge. Empty if it failed to start. */
+let aiProxyEnv: Record<string, string> = {};
 let wakeWordService: WakeWordService | null = null;
 let touchInputService: TouchInputService | null = null;
+let socialViewsService: SocialViewsService | null = null;
 // Set to true only after the Next.js server is confirmed ready and the first
 // window has been created. Guards activate/reopen handlers from firing early.
 let appReady = false;
@@ -469,6 +533,15 @@ function startNextServer(): Promise<void> {
         // i.e. inside the (shared, read-only, distributable) app bundle — which
         // leaks the packager's credentials to everyone who installs the app.
         JARVIS_DATA_DIR: app.getPath('userData'),
+        // The PyInstaller binaries live in Resources/scripts (extraResources),
+        // outside the server's cwd. Point the server at that single copy so we
+        // don't have to ship a second ~85 MB duplicate inside Resources/app.
+        JARVIS_SCRIPTS_DIR: path.join(process.resourcesPath, 'scripts'),
+        // Where the route handlers reach paid AI services. No API key is passed
+        // here on purpose — the bridge attaches the signed-in user's token per
+        // request, so a leaked child environment buys nobody anything after the
+        // app closes.
+        ...aiProxyEnv,
       },
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -680,6 +753,9 @@ function createWindow() {
       nodeIntegration: false,
       webSecurity: true,
       backgroundThrottling: false,
+      // Social Media dashboard embeds Instagram/TikTok/Facebook/YouTube
+      // in Chromium <webview> guests with persistent login partitions.
+      webviewTag: true,
     },
   });
 
@@ -744,8 +820,17 @@ app.whenReady().then(async () => {
   registerJarvisPdfProtocol();
   setupPermissions();
   setupDesktopModeIpc();
+  registerAuthIpc(() => mainWindow);
   await requestMediaPermissions();
   requestAccessibilityAndScreenRecording();
+
+  // Must be listening before the Next server starts, because that server is
+  // told where to find it at spawn time.
+  try {
+    aiProxyEnv = await startAiProxy();
+  } catch (err) {
+    console.error('Failed to start the AI bridge; AI features will be unavailable:', err);
+  }
 
   if (isDev) {
     createWindow();
@@ -776,6 +861,12 @@ app.whenReady().then(async () => {
   }
 
   appReady = true;
+
+  // Sign back in from the remembered refresh token, then play out a link that
+  // arrived while the app was still starting.
+  await restoreSession();
+  deliverDeepLink(queuedDeepLink);
+  queuedDeepLink = null;
 
   wakeWordService = new WakeWordService();
   wakeWordService!.setCallbacks(
@@ -843,6 +934,50 @@ app.whenReady().then(async () => {
   touchInputService.start();
 
   ipcMain.handle('touch-input:get-status', () => touchInputService?.status ?? { connected: false });
+
+  // Transparent windows blank out guest views on macOS. Social Command flips
+  // the main window opaque while open so the four WebContentsViews can paint.
+  ipcMain.handle('window:set-opaque', (_event, opaque: boolean) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { success: false };
+    try {
+      mainWindow.setBackgroundColor(opaque ? '#020814' : '#00000000');
+      return { success: true, opaque: !!opaque };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'failed' };
+    }
+  });
+
+  // Social Command — four WebContentsView browser panes over the main UI
+  socialViewsService = new SocialViewsService(() => mainWindow);
+  ipcMain.handle('social:start', () => socialViewsService!.start());
+  ipcMain.handle('social:stop', () => socialViewsService!.stop());
+  ipcMain.handle('social:set-bounds', (_e, all: Partial<Record<SocialPlatformId, SocialBounds>>) =>
+    socialViewsService!.setAllBounds(all ?? {}));
+  ipcMain.handle('social:navigate', (_e, id: SocialPlatformId, url: string) =>
+    socialViewsService!.navigate(id, url));
+  ipcMain.handle('social:navigate-all', (_e, url: string) =>
+    socialViewsService!.navigateAll(url));
+  ipcMain.handle('social:reload', (_e, id: SocialPlatformId) =>
+    socialViewsService!.reload(id));
+  ipcMain.handle('social:home', (_e, id: SocialPlatformId) =>
+    socialViewsService!.goHome(id));
+  ipcMain.handle('social:get-url', (_e, id: SocialPlatformId) =>
+    socialViewsService!.getUrl(id));
+  ipcMain.handle('social:capture-html', (_e, id: SocialPlatformId) =>
+    socialViewsService!.captureHtml(id));
+  ipcMain.handle('social:exec', (_e, id: SocialPlatformId, code: string) =>
+    socialViewsService!.executeJavaScript(id, code));
+  ipcMain.handle(
+    'social:post-reply',
+    (
+      _e,
+      id: SocialPlatformId,
+      author: string,
+      commentText: string,
+      reply: string,
+      options?: { typingMsPerChar?: number; typingJitterMs?: number },
+    ) => socialViewsService!.postReply(id, author, commentText, reply, options),
+  );
 });
 
 app.on('window-all-closed', () => {
@@ -862,8 +997,10 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  socialViewsService?.stop();
   wakeWordService?.stop();
   touchInputService?.stop();
   nextServer?.kill();
   httpsServer?.close();
+  void stopAiProxy();
 });

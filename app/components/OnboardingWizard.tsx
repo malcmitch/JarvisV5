@@ -6,6 +6,7 @@ import { sfx } from '../lib/sfx';
 import { loadServerSettings, saveServerSettings } from '../lib/serverSettings';
 
 const DONE_KEY = 'jarvis_onboarding_done';
+export const SHOW_ONBOARDING_EVENT = 'jarvis:show-onboarding';
 
 type Step = 'welcome' | 'engine' | 'location' | 'tour';
 
@@ -13,56 +14,67 @@ type Step = 'welcome' | 'engine' | 'location' | 'tour';
  * First-run setup. Shown once when no voice engine is configured — walks
  * through picking OpenAI/ElevenLabs, entering credentials, and setting a
  * weather location, then reloads so the app boots with the new settings.
+ * Can also be reopened later via the Settings UI (replay mode).
  */
 export function OnboardingWizard() {
   const [visible, setVisible] = useState(false);
+  const [replay, setReplay] = useState(false);
   const [step, setStep] = useState<Step>('welcome');
-  const [mode, setMode] = useState<'openai' | 'elevenlabs'>('openai');
-  const [apiKey, setApiKey] = useState('');
-  const [agentId, setAgentId] = useState('');
   const [location, setLocation] = useState('');
+
+  const openWizard = (asReplay: boolean) => {
+    try {
+      const loc = localStorage.getItem('jarvis_weather_location');
+      if (loc) setLocation(loc);
+    } catch { /* leave defaults */ }
+    setStep('welcome');
+    setReplay(asReplay);
+    setVisible(true);
+  };
 
   useEffect(() => {
     (async () => {
       try {
         if (localStorage.getItem(DONE_KEY)) return;
-        // Configured already (either locally or via the server settings file)?
+        // Anything already saved means this machine has been set up before.
+        // Credentials are no longer part of that decision: Jarvis is usable as
+        // soon as the account is signed in, which SignInGate handles.
         const server = await loadServerSettings();
-        const raw = server.jarvis_settings ?? localStorage.getItem('jarvis_settings');
-        if (raw) {
-          const s = JSON.parse(raw) as { apiKey?: string; elevenLabsAgentId?: string };
-          if (s.apiKey?.trim() || s.elevenLabsAgentId?.trim()) {
-            localStorage.setItem(DONE_KEY, '1');
-            return;
-          }
+        if (server.jarvis_settings ?? localStorage.getItem('jarvis_settings')) {
+          localStorage.setItem(DONE_KEY, '1');
+          return;
         }
-        setVisible(true);
+        openWizard(false);
       } catch {
-        setVisible(true);
+        openWizard(false);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    const handler = () => openWizard(true);
+    window.addEventListener(SHOW_ONBOARDING_EVENT, handler);
+    return () => window.removeEventListener(SHOW_ONBOARDING_EVENT, handler);
   }, []);
 
   const finish = async (skipped: boolean) => {
     sfx('select_confirm', 0.6);
     localStorage.setItem(DONE_KEY, '1');
 
-    if (!skipped) {
+    const enteredLocation = !!location.trim();
+    const changed = enteredLocation;
+
+    if (!skipped && (!replay || changed)) {
       try {
         // Merge onto whatever partial settings already exist
         const raw = localStorage.getItem('jarvis_settings');
         const existing = raw ? JSON.parse(raw) as Record<string, unknown> : {};
-        const updated = {
-          ...existing,
-          apiMode: mode,
-          ...(mode === 'openai' && apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-          ...(mode === 'elevenlabs' && agentId.trim() ? { elevenLabsAgentId: agentId.trim() } : {}),
-        };
+        const updated = { ...existing, apiMode: 'elevenlabs' };
         const serialised = JSON.stringify(updated);
         localStorage.setItem('jarvis_settings', serialised);
 
         const patch: Record<string, string> = { jarvis_settings: serialised };
-        if (location.trim()) {
+        if (enteredLocation) {
           localStorage.setItem('jarvis_weather_location', location.trim());
           patch.jarvis_weather_location = location.trim();
         }
@@ -71,8 +83,11 @@ export function OnboardingWizard() {
     }
 
     setVisible(false);
-    // Reload so JarvisAssistant boots with the fresh credentials
-    if (!skipped) window.setTimeout(() => window.location.reload(), 250);
+    // First-run: reload so JarvisAssistant boots with the saved preferences.
+    // Replay: only reload if the user actually entered new values.
+    if (!skipped && (!replay || changed)) {
+      window.setTimeout(() => window.location.reload(), 250);
+    }
   };
 
   const next = (to: Step) => { sfx('switch_interface', 0.4, 2); setStep(to); };
@@ -123,37 +138,16 @@ export function OnboardingWizard() {
 
             {step === 'engine' && (
               <motion.div key="engine" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
-                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice Engine</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['openai', 'elevenlabs'] as const).map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => { sfx('select', 0.5); setMode(m); }}
-                      className={`flex flex-col items-start px-3 py-2.5 border rounded text-left transition-all ${
-                        mode === m ? 'bg-cyan-500/20 border-cyan-400' : 'bg-transparent border-cyan-500/20 hover:border-cyan-500/50'
-                      }`}
-                    >
-                      <span className={`text-xs font-bold uppercase ${mode === m ? 'text-cyan-300' : 'text-cyan-600'}`}>
-                        {m === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}
-                      </span>
-                      <span className="text-[10px] text-white/30 mt-0.5">
-                        {m === 'openai' ? 'GPT Realtime via WebRTC' : 'Conversational agent'}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                {mode === 'openai' ? (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">OpenAI API Key</label>
-                    <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." className={inputClass} />
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">ElevenLabs Agent ID</label>
-                    <input type="text" value={agentId} onChange={(e) => setAgentId(e.target.value)} placeholder="agent_..." className={inputClass} />
-                    <p className="text-[10px] text-cyan-700">Import the tool definitions from the elevenlabs-tools folder into your agent.</p>
-                  </div>
-                )}
+                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice</label>
+                <p className="text-[11px] text-cyan-600 leading-relaxed">
+                  Jarvis speaks through your Jarvis account — there are no API keys to set up.
+                  Voice minutes and AI usage come out of your plan, and you can see what is left
+                  at any time under Account.
+                </p>
+                <p className="text-[10px] text-cyan-700 leading-relaxed">
+                  If Jarvis will not talk, it is almost always because the account is signed out
+                  or out of credits. Both are shown on the sign-in screen.
+                </p>
               </motion.div>
             )}
 
@@ -189,7 +183,9 @@ export function OnboardingWizard() {
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-cyan-500/30 bg-cyan-950/30 flex justify-between">
-          <button onClick={() => void finish(true)} className={ghostBtn}>Skip setup</button>
+          <button onClick={() => void finish(true)} className={ghostBtn}>
+            {replay ? 'Close' : 'Skip setup'}
+          </button>
           <div className="flex gap-3">
             {step === 'welcome'  && <button onClick={() => next('engine')} className={primaryBtn}>Begin</button>}
             {step === 'engine'   && <button onClick={() => next('location')} className={primaryBtn}>Continue</button>}

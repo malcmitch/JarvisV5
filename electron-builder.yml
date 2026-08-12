@@ -2,25 +2,35 @@ appId: com.jarvis.assistant.v5
 productName: Jarvis
 copyright: "Copyright © 2026"
 
+# Sign-in finishes in the browser and comes back as jarvis://auth?code=…, which
+# only works if the installer claims the scheme with the OS.
+protocols:
+  - name: Jarvis
+    schemes:
+      - jarvis
+
 # node-hid ships prebuilt binaries; skip node-gyp rebuild (breaks on paths with spaces).
 npmRebuild: false
+
+# Slower to pack, but the payload is dominated by compressible 3D assets and
+# PyInstaller binaries, so it is worth tens of megabytes per installer.
+compression: maximum
 
 directories:
   output: release
   buildResources: buildfiles
 
 files:
+  # electron-builder resolves package.json "dependencies" (and their transitive
+  # deps) automatically, which is how node-hid, selfsigned and http-proxy get
+  # in. Do not hand-list node_modules paths here: a blanket "!node_modules/**"
+  # alongside them silently wins and ships an asar with no native modules at
+  # all, which disables USB touch input and the HTTPS phone proxy.
   - dist-electron/**/*
   - package.json
-  - node_modules/selfsigned/**/*
-  - node_modules/node-forge/**/*
-  - node_modules/http-proxy/**/*
-  - node_modules/eventemitter3/**/*
-  - node_modules/requires-port/**/*
-  # USB touch-screen support (prebuilt N-API binary + its loader)
-  - node_modules/node-hid/**/*
-  - node_modules/pkg-prebuilds/**/*
-  - "!node_modules/**"
+  # Source maps are ~2x the size of the emitted main-process JS and are only
+  # useful against a local build.
+  - "!dist-electron/**/*.map"
   - "!release/**"
   - "!.next/**"
   - "!buildfiles/**"
@@ -50,6 +60,7 @@ extraResources:
     filter:
       - "**/*"
       - "!node_modules/**"
+      - "!art-source/**"
       - "!release/**"
       - "!electron/**"
       - "!electron-scripts/**"
@@ -74,13 +85,25 @@ extraResources:
       - "!.env.*.local"
   - from: .next/standalone/node_modules
     to: app/node_modules
-  # Compiled Python binaries (computer_use, wake_word, etc.)
-  - from: scripts/dist
-    to: scripts/dist
+  # Python source, used as a fallback when the compiled binary for this platform
+  # is missing (the user's own Python 3 runs the .py instead).
+  - from: scripts
+    to: scripts
     filter:
-      - "**/*"
+      - "*.py"
 
+# The compiled Python binaries are ~85 MB and `build:python` can only ever
+# produce them for the host OS. They are attached per-target below so that, say,
+# a Windows installer cross-built on a Mac does not carry Mach-O binaries it can
+# never execute. Platform-specific extraResources are appended to the top-level
+# list, not substituted for it.
 mac:
+  extraResources:
+    - from: scripts/dist
+      to: scripts/dist
+      filter:
+        - "**/*"
+        - "!*.exe"
   target:
     - target: dmg
       arch:
@@ -94,6 +117,11 @@ mac:
   identity: null
 
 win:
+  extraResources:
+    - from: scripts/dist
+      to: scripts/dist
+      filter:
+        - "*.exe"
   target:
     - target: nsis
       arch:
@@ -101,12 +129,22 @@ win:
   icon: buildfiles/icon.png
 
 nsis:
+  artifactName: ${productName}-${version}-windows-x64-setup.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
 
+appImage:
+  artifactName: ${productName}-${version}-linux-x86_64.${ext}
+
 linux:
+  extraResources:
+    - from: scripts/dist
+      to: scripts/dist
+      filter:
+        - "**/*"
+        - "!*.exe"
   target:
     - target: AppImage
       arch:
@@ -115,6 +153,10 @@ linux:
   category: Utility
 
 dmg:
+  # Named by platform and architecture because the release page offers several at
+  # once. electron-builder's default leaves the Intel build with no arch suffix at
+  # all, so the two Mac downloads are indistinguishable to whoever has to choose.
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
   title: "Jarvis Installer"
   window:
     width: 600

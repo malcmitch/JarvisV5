@@ -61,6 +61,7 @@ export async function loadServerSettings(): Promise<ServerSettings> {
     // Back-fill localStorage so the host machine benefits from server settings too
     if (typeof window !== 'undefined') {
       const syncKeys: (keyof ServerSettings)[] = [
+        'jarvis_settings',
         'jarvis_ha_url', 'jarvis_ha_token',
         'jarvis_weather_location', 'jarvis_weather_lat', 'jarvis_weather_lon',
         'jarvis_ical_url', 'bambu_email', 'bambu_token_exp',

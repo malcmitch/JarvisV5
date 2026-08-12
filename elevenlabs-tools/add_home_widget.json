@@ -31,7 +31,10 @@
       "description": "Which widget. 'tv' = TV remote. 'printer' = 3D printer status. 'weather-home' = weather. 'ha-device' = HA device card (multiple devices). 'ha-toggle' = single glowing power button for one specific device (use after calling list_devices to get the entity_id).",
       "dynamic_variable": "",
       "constant_value": "",
-      "enum": ["tv", "printer", "weather-home", "ha-device", "ha-toggle"],
+      "enum": [
+        "tv", "printer", "weather-home", "weather-radar", "agenda", "todo", "stocks", "headlines",
+        "timer", "camera-feed", "transcript", "uptime", "orbit", "calculator", "ha-device", "ha-toggle"
+      ],
       "is_system_provided": false,
       "required": true
     },

@@ -30,6 +30,7 @@ import { CameraFeedWidget } from './widgets/CameraFeedWidget';
 import { TranscriptWidget } from './widgets/TranscriptWidget';
 import { UptimeWidget } from './widgets/UptimeWidget';
 import { OrbitWidget } from './widgets/OrbitWidget';
+import { CalculatorWidget } from './widgets/CalculatorWidget';
 import { getCachedSetting, loadServerSettings } from '../../lib/serverSettings';
 import { notify } from '../../lib/notify';
 
@@ -37,7 +38,7 @@ type WidgetType =
   | 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image'
   | 'terminal' | 'tv' | 'printer' | 'weather-home' | 'ha-device' | 'ha-toggle' | 'model-viewer'
   | 'agenda' | 'todo' | 'stocks' | 'headlines' | 'timer' | 'weather-radar' | 'camera-feed'
-  | 'transcript' | 'uptime' | 'orbit';
+  | 'transcript' | 'uptime' | 'orbit' | 'calculator';
 
 interface ModuleData {
   id: string;
@@ -92,6 +93,7 @@ const WIDGET_META: Record<WidgetType, { title: string; width: number; height: nu
   transcript:   { title: 'COMMS LOG',       width: 340, height: 300 },
   uptime:       { title: 'HOST MONITOR',    width: 300, height: 220 },
   orbit:        { title: 'ORBITAL TRACKER', width: 340, height: 290 },
+  calculator:   { title: 'COMPUTE',         width: 280, height: 380 },
 };
 
 // ── HUD layout persistence ───────────────────────────────────────────────────
@@ -496,6 +498,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
           {module.type === 'transcript' && <TranscriptWidget />}
           {module.type === 'uptime' && <UptimeWidget config={module.widgetConfig} />}
           {module.type === 'orbit' && <OrbitWidget />}
+          {module.type === 'calculator' && <CalculatorWidget />}
         </HUDModule>
       ))}
     </div>

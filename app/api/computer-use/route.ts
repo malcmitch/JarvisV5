@@ -3,11 +3,13 @@ import { spawn, execFileSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { requireAiProxy, type AiProxy } from '../../lib/aiProxy';
 
-// In production (packaged .app), process.cwd() is the standalone dir which
-// contains scripts/dist/computer_use (the PyInstaller binary).
-// In development, fall back to calling python3 directly.
-const SCRIPTS_DIR = path.join(process.cwd(), 'scripts');
+// In production the packaged app shares one copy of the PyInstaller binaries
+// with the Electron main process, at Resources/scripts; main.ts passes its
+// location through JARVIS_SCRIPTS_DIR. In development, and if that env var is
+// ever missing, fall back to the scripts dir next to process.cwd().
+const SCRIPTS_DIR = process.env.JARVIS_SCRIPTS_DIR || path.join(process.cwd(), 'scripts');
 
 // Use both process.platform and process.env.OS — some Electron-as-Node
 // launch environments on Windows have process.platform !== 'win32' even
@@ -109,11 +111,11 @@ function firstPythonFromWhere(name: 'python' | 'python3'): string | null {
  * Windows: prefer `py -3`, then `python` / `python3` on PATH, then common install paths.
  * Never return a bare `python3` on Windows without verifying it exists (avoids spawn ENOENT).
  */
-function resolveScriptRunner(task: string, apiKey: string): { cmd: string; args: string[] } | null {
+function resolveScriptRunner(task: string): { cmd: string; args: string[] } | null {
   if (cachedScriptRunner) {
     const { cmd } = cachedScriptRunner;
-    const baseArgs = cachedScriptRunner.args.slice(0, -2);
-    return { cmd, args: [...baseArgs, task, apiKey] };
+    const baseArgs = cachedScriptRunner.args.slice(0, -1);
+    return { cmd, args: [...baseArgs, task] };
   }
 
   const tryCmd = (cmd: string, args: string[], env?: NodeJS.ProcessEnv) => {
@@ -128,19 +130,19 @@ function resolveScriptRunner(task: string, apiKey: string): { cmd: string; args:
   if (process.platform === 'win32') {
     const winEnv = processEnvForWinChild();
     if (tryCmd('py', ['-3', '--version'], winEnv)) {
-      cachedScriptRunner = { cmd: 'py', args: ['-3', SCRIPT_PATH, task, apiKey] };
+      cachedScriptRunner = { cmd: 'py', args: ['-3', SCRIPT_PATH, task] };
       return cachedScriptRunner;
     }
     for (const name of ['python', 'python3'] as const) {
       if (tryCmd(name, ['--version'], winEnv)) {
-        cachedScriptRunner = { cmd: name, args: [SCRIPT_PATH, task, apiKey] };
+        cachedScriptRunner = { cmd: name, args: [SCRIPT_PATH, task] };
         return cachedScriptRunner;
       }
     }
     for (const name of ['python3', 'python'] as const) {
       const full = firstPythonFromWhere(name);
       if (full && tryCmd(full, ['--version'], winEnv)) {
-        cachedScriptRunner = { cmd: full, args: [SCRIPT_PATH, task, apiKey] };
+        cachedScriptRunner = { cmd: full, args: [SCRIPT_PATH, task] };
         return cachedScriptRunner;
       }
     }
@@ -152,7 +154,7 @@ function resolveScriptRunner(task: string, apiKey: string): { cmd: string; args:
           stdio: 'pipe',
           env: winEnv,
         });
-        cachedScriptRunner = { cmd: candidate, args: [SCRIPT_PATH, task, apiKey] };
+        cachedScriptRunner = { cmd: candidate, args: [SCRIPT_PATH, task] };
         return cachedScriptRunner;
       } catch {
         /* next */
@@ -166,7 +168,7 @@ function resolveScriptRunner(task: string, apiKey: string): { cmd: string; args:
     try {
       if (candidate !== 'python3' && !fs.existsSync(candidate)) continue;
       execFileSync(candidate, ['--version'], { timeout: 3000, stdio: 'pipe' });
-      cachedScriptRunner = { cmd: candidate, args: [SCRIPT_PATH, task, apiKey] };
+      cachedScriptRunner = { cmd: candidate, args: [SCRIPT_PATH, task] };
       return cachedScriptRunner;
     } catch {
       /* next */
@@ -181,7 +183,7 @@ const MISSING_HELPER_MSG =
 
 function run(
   task: string,
-  apiKey: string,
+  proxy: AiProxy,
   pythonPathOverride: string | null
 ): Promise<{ result?: string; turns?: number; error?: string }> {
   return new Promise((resolve) => {
@@ -198,12 +200,12 @@ function run(
         return;
       }
       cmd = pythonPathOverride;
-      args = [SCRIPT_PATH, task, apiKey];
+      args = [SCRIPT_PATH, task];
       console.log('[computer-use] Using Python path from settings:', cmd);
     } else if (realBinaryPath) {
       // Self-contained binary — no Python needed on the user's machine
       cmd = realBinaryPath;
-      args = [task, apiKey];
+      args = [task];
       console.log('[computer-use] Using bundled binary:', realBinaryPath);
     } else {
       if (!fs.existsSync(SCRIPT_PATH)) {
@@ -212,7 +214,7 @@ function run(
         });
         return;
       }
-      const resolved = resolveScriptRunner(task, apiKey);
+      const resolved = resolveScriptRunner(task);
       if (!resolved) {
         const winNote = IS_WINDOWS
           ? ` On Windows, computer_use.exe was not found at ${BINARY_PATH} — the Windows build requires running 'npm run build:python' on a Windows machine before packaging.`
@@ -227,10 +229,18 @@ function run(
       console.log('[computer-use] Falling back to Python:', cmd);
     }
 
+    // Passed through the environment rather than argv: process arguments are
+    // readable by every user on the machine via `ps`, and this is a credential.
+    const childEnv = {
+      ...(process.platform === 'win32' ? processEnvForWinChild() : process.env),
+      OPENAI_BASE_URL: proxy.baseURL,
+      OPENAI_API_KEY: proxy.apiKey,
+    };
+
     const proc = spawn(cmd, args, {
       cwd: SCRIPTS_DIR,
       windowsHide: process.platform === 'win32',
-      env: process.platform === 'win32' ? processEnvForWinChild() : process.env,
+      env: childEnv,
     });
     let stdout = '';
     let stderr = '';
@@ -258,13 +268,16 @@ function run(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { task, apiKey, pythonPathOverride } = body as {
+    const { task, pythonPathOverride } = body as {
       task?: string;
-      apiKey?: string;
       pythonPathOverride?: string | null;
     };
     if (!task) return NextResponse.json({ error: 'Missing task' }, { status: 400 });
-    if (!apiKey) return NextResponse.json({ error: 'Missing apiKey' }, { status: 400 });
+
+    const bridge = requireAiProxy();
+    if (!bridge.ok) {
+      return NextResponse.json({ error: bridge.error }, { status: bridge.status });
+    }
 
     let pyOverride: string | null = null;
     if (typeof pythonPathOverride === 'string' && pythonPathOverride.trim()) {
@@ -278,7 +291,7 @@ export async function POST(req: NextRequest) {
       pyOverride = p;
     }
 
-    const result = await run(task, apiKey, pyOverride);
+    const result = await run(task, bridge.proxy, pyOverride);
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

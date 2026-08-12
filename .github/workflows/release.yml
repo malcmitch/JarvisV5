@@ -1,0 +1,137 @@
+name: Release
+
+# Builds the three installers and attaches them to a GitHub release.
+#
+# Each installer is built on its own operating system rather than cross-compiled.
+# A DMG needs macOS tooling to lay out and an NSIS installer needs Windows (or
+# Wine, which is its own source of failures), so a matrix of native runners is
+# both simpler and more trustworthy than cross-building from one host.
+#
+# Push a tag to publish:
+#
+#   npm version 1.1.1 && git push --follow-tags
+#
+# The tag must match the version in package.json, because electron-builder takes
+# the filenames from package.json while the release is named from the tag.
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Runs the whole build without publishing, so the workflow can be exercised
+  # before a tag is cut. Artifacts are attached to the run instead.
+  workflow_dispatch:
+
+# Needed to create the release and upload to it. Nothing here reads secrets.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    strategy:
+      # One platform failing should not deny the others a release.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS (dmg, Intel + Apple Silicon)
+            script: dist:mac
+            installers: release/*.dmg
+          - os: windows-latest
+            label: Windows (exe)
+            script: dist:win
+            installers: release/*.exe
+          - os: ubuntu-latest
+            label: Linux (AppImage)
+            script: dist:linux
+            installers: release/*.AppImage
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 3.11 rather than the newest: onnxruntime and scipy, which the wake-word
+      # binary pulls in, lag behind the current release.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Headers for the native modules npm builds from source when no prebuild
+      # matches: node-hid needs udev, robotjs needs XTest and libpng, and the
+      # wake-word binary needs PortAudio.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libudev-dev libxtst-dev libpng-dev libasound2-dev libportaudio2
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Allowed to fail. These are ~85 MB PyInstaller bundles that can only be
+      # built for the host OS, and the app runs the .py with the user's own Python
+      # when the binary for their platform is missing. A toolchain problem on one
+      # runner should cost that platform a convenience, not its installer.
+      - name: Compile Python helpers
+        continue-on-error: true
+        run: npm run build:python
+
+      - name: Build installer
+        env:
+          # The step above already did this, or tried to. Without it the packaging
+          # script would run it a second time and fail hard.
+          JARVIS_SKIP_PYTHON: "1"
+        run: npm run ${{ matrix.script }}
+
+      - name: List what was built
+        shell: bash
+        run: ls -lh release/ || true
+
+      # Attached to the workflow run so a manual dispatch is still useful, and so
+      # a tagged build leaves the installers somewhere even if publishing fails.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-installers
+          path: ${{ matrix.installers }}
+          if-no-files-found: error
+          retention-days: 14
+
+      # Only the installers. There is no electron-updater in this app, so the
+      # blockmaps and latest.yml that electron-builder also writes would be dead
+      # weight on the release page.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.installers }}
+          fail_on_unmatched_files: true
+          draft: false
+          body: |
+            Download the installer for your platform:
+
+            | Platform | File |
+            | --- | --- |
+            | macOS (Apple Silicon) | `*-mac-arm64.dmg` |
+            | macOS (Intel) | `*-mac-x64.dmg` |
+            | Windows | `*-windows-x64-setup.exe` |
+            | Linux | `*-linux-x86_64.AppImage` |
+
+            Jarvis signs in to your Jarvis account on first launch — there are no
+            API keys to enter.
+
+            The macOS builds are not code-signed, so the first launch needs
+            right-click then Open to get past Gatekeeper. On Linux, mark the
+            AppImage executable with `chmod +x` before running it.

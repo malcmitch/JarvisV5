@@ -1,0 +1,28 @@
+{
+  "type": "client",
+  "name": "forget",
+  "description": "Delete something you previously remembered about the user. Use when the user says 'forget that', 'that's wrong', 'I don't like X anymore', or corrects a fact you recalled. When correcting a fact, call forget for the old version and then remember for the new one.",
+  "pre_tool_speech": "off",
+  "interruption_mode": "allow",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 5,
+  "parameters": [
+    {
+      "id": "query",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "Keywords describing the memory to delete. The single closest match is removed.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

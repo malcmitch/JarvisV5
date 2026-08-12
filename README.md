@@ -151,23 +151,40 @@ npm run dist
   ```bash
   pip install mss pyautogui openai Pillow
   ```
-- **OpenAI API key** — enter in the Settings panel at runtime, or set via environment variable
+- **A Jarvis account** — sign in when the app opens. There are no API keys to enter.
 
 ---
 
-## Environment
+## Accounts and credentials
 
-Copy `env.example` to `.env.local` for local development:
+Jarvis holds no API keys. Signing in at [jarvisdesktop.com](https://jarvisdesktop.com)
+is what lets it speak and think, and the plan on that account is what decides how
+much it can do.
 
-```bash
-cp env.example .env.local
-```
+How a request gets paid for:
 
-```
-NEXT_PUBLIC_OPENAI_API_KEY=sk-proj-...
-```
+1. `electron/auth.ts` signs in over PKCE and keeps the refresh token in the OS
+   keychain. The renderer never sees a token.
+2. Voice asks the main process for a conversation token. The server charges a
+   voice minute, mints a token good for that one call, and the app heartbeats
+   once a minute to pay for the rest.
+3. Everything else — image generation, x-ray, computer use, social replies —
+   goes through the loopback bridge in `electron/ai-proxy.ts`, which attaches the
+   account token per request. The bundled Next server and the Python computer-use
+   script talk to that bridge as if it were OpenAI, so neither holds a credential.
 
-The API key can also be entered directly in the Settings modal and is stored in `localStorage` — no `.env` file is required at runtime.
+The ElevenLabs and OpenAI keys live only in the jarvis-web deployment. Two
+ElevenLabs agents are configured there, both with Authentication switched on: one
+for the website and `ELEVENLABS_DESKTOP_AGENT_ID` for this app.
+
+### Environment
+
+No `.env.local` is needed to run Jarvis. For development against a local
+jarvis-web, set `JARVIS_WEB_ORIGIN=http://localhost:3000`.
+
+`ELEVENLABS_API_KEY` is only read by the maintainer scripts in `scripts/`
+(`npm run el:sync`, `npm run el:tune`), which edit the agent definitions. It is
+never used at runtime.
 
 ---
 

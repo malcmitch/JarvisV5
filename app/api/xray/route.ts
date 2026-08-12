@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai';
+import { requireAiProxy } from '../../lib/aiProxy';
 
 export async function POST(req: NextRequest) {
   try {
-    const { imageBase64, apiKey } = await req.json();
+    const { imageBase64 } = await req.json();
 
     if (!imageBase64) return NextResponse.json({ error: 'Missing image' }, { status: 400 });
-    if (!apiKey) return NextResponse.json({ error: 'Missing apiKey' }, { status: 400 });
 
-    const client = new OpenAI({ apiKey });
+    const bridge = requireAiProxy();
+    if (!bridge.ok) {
+      return NextResponse.json({ error: bridge.error }, { status: bridge.status });
+    }
+
+    const client = new OpenAI(bridge.proxy);
 
     // Convert base64 → File object for the Image edit API
     const imageBuffer = Buffer.from(imageBase64, 'base64');
