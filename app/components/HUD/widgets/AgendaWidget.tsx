@@ -10,7 +10,7 @@ interface AgendaItem {
 }
 
 /** Next few days of calendar events — Google Calendar via MCP when connected,
- *  iCal feed fallback, plus local Jarvis tasks. */
+ *  iCal feed fallback, plus local Camille tasks. */
 export function AgendaWidget() {
   const [items, setItems] = useState<AgendaItem[] | null>(null);
 

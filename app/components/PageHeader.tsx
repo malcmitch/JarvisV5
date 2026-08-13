@@ -3,7 +3,7 @@
 import React from 'react';
 
 interface PageHeaderProps {
-  /** Short page title, displayed as "JARVIS · TITLE" */
+  /** Short page title, displayed as "CAMILLE · TITLE" */
   title: string;
   onNavigateHome: () => void;
   /** Accent colour for the pulse dot. Defaults to cyan. */
@@ -54,7 +54,7 @@ export function PageHeader({ title, onNavigateHome, accent = 'cyan', right }: Pa
         <div className="flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${dotColor}`} />
           <span className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: labelColor }}>
-            Jarvis
+            Camille
           </span>
           <span className="font-mono text-[10px] text-white/25 uppercase tracking-widest">· {title}</span>
         </div>

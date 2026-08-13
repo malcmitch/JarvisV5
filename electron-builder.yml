@@ -1,5 +1,5 @@
 appId: com.jarvis.assistant.v5
-productName: Jarvis
+productName: Camille
 copyright: "Copyright © 2026"
 
 # Updates come from Malc's fork. Without this block electron-builder guesses
@@ -13,7 +13,7 @@ publish:
 # Sign-in finishes in the browser and comes back as jarvis://auth?code=…, which
 # only works if the installer claims the scheme with the OS.
 protocols:
-  - name: Jarvis
+  - name: Camille
     schemes:
       - jarvis
 
@@ -172,7 +172,7 @@ dmg:
   # once. electron-builder's default leaves the Intel build with no arch suffix at
   # all, so the two Mac downloads are indistinguishable to whoever has to choose.
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
-  title: "Jarvis Installer"
+  title: "Camille Installer"
   window:
     width: 600
     height: 400

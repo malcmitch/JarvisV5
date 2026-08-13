@@ -658,7 +658,7 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
                     Choose Google <span className="text-cyan-400">Services</span>
                   </h1>
                   <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-xl mx-auto">
-                    You must connect your Google account in order to use Google-based services. Pick what Jarvis should connect. Existing services are detected and skipped during auth.
+                    You must connect your Google account in order to use Google-based services. Pick what Camille should connect. Existing services are detected and skipped during auth.
                   </p>
                 </div>
 
@@ -941,7 +941,7 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
                     Authenticate <span className="text-cyan-400">One By One</span>
                   </h1>
                   <p className="text-[12px] font-mono text-white/40 leading-relaxed max-w-xl mx-auto">
-                    Jarvis runs each selected OAuth flow separately. Failed services can be retried alone.
+                    Camille runs each selected OAuth flow separately. Failed services can be retried alone.
                   </p>
                 </div>
 
@@ -1045,7 +1045,7 @@ export function GoogleCalendarWizard({ onComplete, onSkip, onBack }: GoogleCalen
                       Google <span className="text-emerald-400">Ready</span>
                     </h1>
                     <p className="text-[12px] font-mono text-white/40 leading-relaxed mt-2">
-                      Connected services are ready for Jarvis MCP tools.
+                      Connected services are ready for Camille MCP tools.
                     </p>
                   </div>
                 </div>

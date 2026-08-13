@@ -87,7 +87,7 @@ export function PhotoWidget({ photo, index, onDismiss }: Props) {
             className="w-full h-full object-contain"
             draggable={false}
           />
-          {/* Jarvis-context badge */}
+          {/* Camille-context badge */}
           <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/30 text-[9px] text-cyan-400/80 uppercase tracking-widest font-mono">
             in context
           </div>

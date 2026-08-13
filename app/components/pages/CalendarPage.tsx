@@ -150,7 +150,7 @@ export function CalendarPage({ onNavigateHome }: Props) {
     setShowWizard(false);
   };
 
-  // ── Jarvis event handler ───────────────────────────────────────────────────
+  // ── Camille event handler ───────────────────────────────────────────────────
 
   useEffect(() => {
     const handler = (e: Event) => {

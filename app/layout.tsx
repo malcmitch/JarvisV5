@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Jarvis",
+  title: "Camille",
   description: "Your AI Assistant",
 };
 
@@ -69,7 +69,7 @@ export default function RootLayout({
   window.WebSocket.CLOSED = 3;
 
   location.reload = function() {
-    console.warn('[Jarvis] Blocked programmatic location.reload()');
+    console.warn('[Camille] Blocked programmatic location.reload()');
   };
 })();
         ` }} />

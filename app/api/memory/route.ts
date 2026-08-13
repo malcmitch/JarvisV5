@@ -4,14 +4,14 @@ import path from 'path';
 import crypto from 'crypto';
 
 /**
- * Per-account long-term memory for Jarvis.
+ * Per-account long-term memory for Camille.
  *
  * ElevenLabs only exposes `memory_entry_search` as a built-in tool on this
  * workspace tier — creating and updating entries is not available — so the
  * store lives here and is surfaced to the agent through the remember / recall /
  * forget client tools.
  *
- * Entries are grouped by `accountId` so several people can share one Jarvis
+ * Entries are grouped by `accountId` so several people can share one Camille
  * install without seeing each other's memories.
  */
 

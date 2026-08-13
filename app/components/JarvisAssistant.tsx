@@ -34,7 +34,7 @@ function dispatchTranscript(role: 'user' | 'jarvis', text: string): void {
 
 /**
  * Values handed to the agent at session start and referenced as {{...}} in its
- * system prompt. Pre-loading the memory digest here means Jarvis opens the
+ * system prompt. Pre-loading the memory digest here means Camille opens the
  * conversation already knowing the user instead of having to call `recall`
  * before it can say anything useful.
  *
@@ -66,8 +66,8 @@ const FFT_BARS = 64;
 const DEFAULT_SETTINGS: JarvisSettings = {
   apiMode: 'elevenlabs',
   elevenLabsFirstMessage: '',
-  voice: 'echo',
-  initialPrompt: 'You are Jarvis, a helpful AI assistant. You are always helpful, polite, and concise. Subtle British accent. Robotic. Emotionally controlled. Witty and a little bit poking fun at the user.',
+  voice: 'shimmer',
+  initialPrompt: 'You are Camille, a helpful AI assistant. You are always helpful, polite, and concise. A woman with a calm, composed voice and a subtle French lilt. Emotionally controlled. Effortlessly witty and a little bit poking fun at the user.',
   enabledFunctions: [
     'desktop_mode', 'navigate_to_page', 'jarvis_disconnect',
     'lock_interface', 'set_timer', 'set_reminder', 'hud_layout', 'briefing', 'set_theme', 'ambient_mode',
@@ -253,12 +253,12 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     return () => unsubscribe?.();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Wake word detection — listen for "Jarvis" from main process
+  // Wake word detection — listen for "Camille" from main process
   useEffect(() => {
     if (!window.electron?.onHeyJarvis) return;
 
     const unsubscribe = window.electron.onHeyJarvis(() => {
-      console.log('[WakeWord] "Jarvis" detected in renderer');
+      console.log('[WakeWord] "Camille" detected in renderer');
 
       // Play the iconic boot sound
       sfx('intro_sfx', 0.7);
@@ -453,7 +453,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     setPhotos(prev => prev.filter(p => p.id !== id));
   }
 
-  // Send current photos as a conversation item so Jarvis has them in context.
+  // Send current photos as a conversation item so Camille has them in context.
   // Called whenever the photo list changes (if session is live) and on session open.
   function injectPhotosIntoSession(currentPhotos: PhotoEntry[]) {
     if (currentPhotos.length === 0) return;
@@ -589,7 +589,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
   }, []);
 
   // UI-triggered announcements (e.g. armory BUILD button): feed the event text
-  // into the live session so Jarvis speaks a response. No-op when disconnected.
+  // into the live session so Camille speaks a response. No-op when disconnected.
   useEffect(() => {
     const handler = (e: Event) => {
       const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
@@ -649,7 +649,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
           ]));
 
           // Voice is ElevenLabs, bought through the account. Settings saved
-          // before that change can still say 'openai', which would send Jarvis
+          // before that change can still say 'openai', which would send Camille
           // down a path that no longer has a key to use.
           const nextSettings: JarvisSettings = {
             ...DEFAULT_SETTINGS,
@@ -870,7 +870,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     };
   }, [status, elConversation.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The OpenAI Realtime path was removed when voice moved onto the Jarvis
+  // The OpenAI Realtime path was removed when voice moved onto the Camille
   // account: it authenticated with a key the user pasted in, which no longer
   // exists. All speech is ElevenLabs, bought per minute through the account.
 
@@ -934,7 +934,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
       // this app cannot talk to the agent for free.
       const minted = await window.electron?.cloud?.voiceToken();
       if (!minted?.ok) {
-        const message = minted?.error ?? 'Sign in to Jarvis to use your voice.';
+        const message = minted?.error ?? 'Sign in to Camille to use your voice.';
         console.warn('[voice] Could not get a conversation token:', message);
         window.electron?.setWakeWordMicInUse?.(false);
         setStatus('idle');
@@ -985,7 +985,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
 
   function disconnect() {
     console.log(
-      `%c[Jarvis] disconnect() called at ${new Date().toLocaleTimeString()} — stack: ${new Error().stack?.split('\n')[2]?.trim() ?? 'unknown'}`,
+      `%c[Camille] disconnect() called at ${new Date().toLocaleTimeString()} — stack: ${new Error().stack?.split('\n')[2]?.trim() ?? 'unknown'}`,
       'background:#2d0a0a;color:#ff6b6b;font-weight:bold;padding:2px 6px;border-radius:3px'
     );
     // Mark intentional — prevents auto-reconnect from firing on this close
@@ -1036,9 +1036,9 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     }
 
     if (muted) {
-      // User intentionally silenced Jarvis — disable auto-reconnect so that
+      // User intentionally silenced Camille — disable auto-reconnect so that
       // OpenAI's idle-session timeout doesn't trigger a reconnect (and page
-      // navigation) while Jarvis is muted.
+      // navigation) while Camille is muted.
       autoReconnectRef.current = false;
     } else {
       // User unmuted — if the session died while muted, revive it now.
@@ -1058,13 +1058,13 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     if (compact) {
       sfx('click', 0.45);
       if (status === 'active' || status === 'listening') {
-        console.log(`%c[Jarvis] Logo clicked → DISCONNECTING (status was "${status}")`, 'color:#ef9a9a;font-weight:bold');
+        console.log(`%c[Camille] Logo clicked → DISCONNECTING (status was "${status}")`, 'color:#ef9a9a;font-weight:bold');
         // Fully end the WebRTC stream — no muting, no lingering session.
         // OpenAI cannot call any functions or navigate once disconnected.
         disconnect();
       } else {
-        console.log(`%c[Jarvis] Logo clicked → RECONNECTING (status was "${status}")`, 'color:#a5d6a7;font-weight:bold');
-        // Jarvis is idle/disconnected — reconnect the stream.
+        console.log(`%c[Camille] Logo clicked → RECONNECTING (status was "${status}")`, 'color:#a5d6a7;font-weight:bold');
+        // Camille is idle/disconnected — reconnect the stream.
         setRestartTrigger((t) => t + 1);
       }
       return;
@@ -1079,11 +1079,11 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
   useEffect(() => {
     if (!dynamicState.loaded) return;
 
-    // There is nothing left to check before connecting. Whether Jarvis may
+    // There is nothing left to check before connecting. Whether Camille may
     // speak is the account's business now, and the answer comes back from the
     // token request rather than from anything stored on this machine.
     console.log(
-      `%c[Jarvis] Auto-start effect fired at ${new Date().toLocaleTimeString()} — restartTrigger=${restartTrigger}`,
+      `%c[Camille] Auto-start effect fired at ${new Date().toLocaleTimeString()} — restartTrigger=${restartTrigger}`,
       'background:#1b2838;color:#66bb6a;font-weight:bold;padding:2px 6px;border-radius:3px'
     );
 
@@ -1350,7 +1350,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
             >
               <Image
                 src={`/assets/${settings.logo ?? 'logo'}.png`}
-                alt="Jarvis Logo"
+                alt="Camille Logo"
                 width={300}
                 height={300}
                 className="w-full h-full object-contain group-hover:drop-shadow-[0_0_15px_rgba(34,211,238,0.6)] transition-all"

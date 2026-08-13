@@ -71,7 +71,7 @@ export function getAiProxy(): AiProxy | null {
 }
 
 export const AI_UNAVAILABLE =
-  'Jarvis is not signed in to an account that can run AI features. Open Jarvis and sign in.';
+  'Camille is not signed in to an account that can run AI features. Open Camille and sign in.';
 
 /**
  * The proxy, or a ready-made error response. Handlers should return the response

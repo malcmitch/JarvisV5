@@ -179,7 +179,7 @@ function resolveScriptRunner(task: string): { cmd: string; args: string[] } | nu
 }
 
 const MISSING_HELPER_MSG =
-  'Computer Use could not start. Either install Python 3 for Windows (from python.org — enable "Add python.exe to PATH") and restart Jarvis, or rebuild the app on Windows with `npm run build:python` so scripts/dist/computer_use.exe is bundled.';
+  'Computer Use could not start. Either install Python 3 for Windows (from python.org — enable "Add python.exe to PATH") and restart Camille, or rebuild the app on Windows with `npm run build:python` so scripts/dist/computer_use.exe is bundled.';
 
 function run(
   task: string,

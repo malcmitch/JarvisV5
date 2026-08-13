@@ -37,7 +37,7 @@ export function OnboardingWizard() {
       try {
         if (localStorage.getItem(DONE_KEY)) return;
         // Anything already saved means this machine has been set up before.
-        // Credentials are no longer part of that decision: Jarvis is usable as
+        // Credentials are no longer part of that decision: Camille is usable as
         // soon as the account is signed in, which SignInGate handles.
         const server = await loadServerSettings();
         if (server.jarvis_settings ?? localStorage.getItem('jarvis_settings')) {
@@ -121,7 +121,7 @@ export function OnboardingWizard() {
             {step === 'welcome' && (
               <motion.div key="welcome" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
                 <p className="text-cyan-300 font-mono text-sm leading-relaxed">
-                  Good evening. I&apos;m Jarvis — your voice-controlled desktop assistant.
+                  Good evening. I&apos;m Camille — your voice-controlled desktop assistant.
                 </p>
                 <p className="text-white/50 font-mono text-xs leading-relaxed">
                   This one-time setup connects a voice engine and sets your location. Everything can be changed
@@ -140,12 +140,12 @@ export function OnboardingWizard() {
               <motion.div key="engine" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
                 <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Voice</label>
                 <p className="text-[11px] text-cyan-600 leading-relaxed">
-                  Jarvis speaks through your Jarvis account — there are no API keys to set up.
+                  Camille speaks through your Camille account — there are no API keys to set up.
                   Voice minutes and AI usage come out of your plan, and you can see what is left
                   at any time under Account.
                 </p>
                 <p className="text-[10px] text-cyan-700 leading-relaxed">
-                  If Jarvis will not talk, it is almost always because the account is signed out
+                  If Camille will not talk, it is almost always because the account is signed out
                   or out of credits. Both are shown on the sign-in screen.
                 </p>
               </motion.div>
@@ -167,7 +167,7 @@ export function OnboardingWizard() {
                 {[
                   ['Arc reactor (bottom-left)', 'Radial navigation to every page'],
                   ['⌘K / Ctrl+K', 'Command palette — pages, widgets, actions'],
-                  ['Say "Jarvis…"', 'Voice control once connected (wake word optional)'],
+                  ['Say "Camille…"', 'Voice control once connected (wake word optional)'],
                   ['Settings → Security', 'Enable the PIN lock screen'],
                   ['"Morning briefing"', 'Weather, schedule, news, and markets in one go'],
                 ].map(([k, v]) => (

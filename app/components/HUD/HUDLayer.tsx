@@ -222,7 +222,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
     return () => window.clearTimeout(t);
   }, [modules, isMobile]);
 
-  // Listen for Jarvis HUD control events
+  // Listen for Camille HUD control events
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{

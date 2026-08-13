@@ -14,7 +14,7 @@
  */
 
 export type ServerSettings = {
-  // Jarvis core
+  // Camille core
   jarvis_settings?: string;        // JSON-serialised JarvisSettings object
 
   // Home Assistant

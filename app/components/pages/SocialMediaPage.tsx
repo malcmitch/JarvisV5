@@ -367,7 +367,7 @@ export function SocialMediaPage({ onNavigateHome }: { onNavigateHome: () => void
     const boot = async () => {
       await window.electron?.setWindowOpaque?.(true);
       if (!window.electron?.socialStart) {
-        notify('Electron Rebuild Needed', 'Quit Jarvis fully and run npm run dev again.', 'warn', 8000);
+        notify('Electron Rebuild Needed', 'Quit Camille fully and run npm run dev again.', 'warn', 8000);
         return;
       }
       const res = await window.electron.socialStart();
@@ -687,7 +687,7 @@ export function SocialMediaPage({ onNavigateHome }: { onNavigateHome: () => void
       return { ok: false };
     }
     if (!window.electron?.socialPostReply) {
-      notify('Send Failed', 'Relaunch Jarvis with npm run dev so Electron picks up the new poster.', 'error');
+      notify('Send Failed', 'Relaunch Camille with npm run dev so Electron picks up the new poster.', 'error');
       return { ok: false };
     }
     setQueue((q) => q.map((x) => (x.id === item.id ? { ...x, status: 'sending' } : x)));
@@ -1007,7 +1007,7 @@ export function SocialMediaPage({ onNavigateHome }: { onNavigateHome: () => void
         return;
       }
       if (!window.electron?.socialExec) {
-        notify('Electron Rebuild Needed', 'Quit Jarvis and run npm run dev again.', 'warn');
+        notify('Electron Rebuild Needed', 'Quit Camille and run npm run dev again.', 'warn');
         return;
       }
       sfx('select_confirm', 0.55);
@@ -1395,7 +1395,7 @@ export function SocialMediaPage({ onNavigateHome }: { onNavigateHome: () => void
             )}
           </div>
 
-          {/* Clearance so compact Jarvis orb (bottom-right) does not cover Start/Auto */}
+          {/* Clearance so compact Camille orb (bottom-right) does not cover Start/Auto */}
           <div className="h-36 shrink-0 pointer-events-none" aria-hidden />
         </div>
       </div>

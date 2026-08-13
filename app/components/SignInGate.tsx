@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { JarvisAuthState, JarvisCreditStatus } from '../window-electron';
 
 /**
- * Blocks the interface until the machine is signed in to a Jarvis account.
+ * Blocks the interface until the machine is signed in to a Camille account.
  *
  * Sign-in happens in the browser at jarvisdesktop.com — this only asks for it and
  * reflects the result. All of the token handling is in the Electron main process.
@@ -16,7 +16,7 @@ import type { JarvisAuthState, JarvisCreditStatus } from '../window-electron';
  * is made. See supabase/migrations/20260811000000_desktop_credits.sql in
  * jarvis-web.
  *
- * Renders nothing outside Electron. The Jarvis UI is also served over the LAN to
+ * Renders nothing outside Electron. The Camille UI is also served over the LAN to
  * phones and tablets, and those clients have no IPC bridge to sign in through.
  */
 
@@ -94,7 +94,7 @@ export function SignInGate() {
 
           <div className="relative w-full max-w-md px-8 text-center">
             <div className="mb-3 font-mono text-[10px] uppercase tracking-[0.4em] text-white/30">
-              Jarvis
+              Camille
             </div>
 
             {!state?.configured ? (
@@ -115,10 +115,10 @@ export function SignInGate() {
             ) : (
               <>
                 <h1 className="mb-4 text-2xl font-semibold text-white">
-                  Sign in to start Jarvis
+                  Sign in to start Camille
                 </h1>
                 <p className="mb-8 text-sm leading-relaxed text-white/45">
-                  Jarvis runs on your Jarvis account. Signing in happens in your browser
+                  Camille runs on your Camille account. Signing in happens in your browser
                   at jarvisdesktop.com, then brings you straight back here.
                 </p>
 
@@ -167,7 +167,7 @@ export function SignInGate() {
       )}
 
       {/* Signed in but with nothing to spend: worth saying before they try to
-          talk to Jarvis and get refused by the server. */}
+          talk to Camille and get refused by the server. */}
       {!blocked && state?.signedIn && credits && !credits.entitled && (
         <motion.div
           key="not-entitled"

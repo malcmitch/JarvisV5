@@ -606,7 +606,7 @@ export function PrinterPage({ onNavigateHome }: Props) {
 
       {/* Bottom status bar */}
       <div className="relative z-10 flex items-center justify-between px-6 py-2 shrink-0" style={{ borderTop: '1px solid rgba(34,211,238,0.08)', background: 'rgba(0,0,0,0.4)' }}>
-        <span className="font-mono text-[9px] uppercase tracking-widest text-white/20">Jarvis · 3D Print Monitor</span>
+        <span className="font-mono text-[9px] uppercase tracking-widest text-white/20">Camille · 3D Print Monitor</span>
         <button onClick={() => { setAuthenticated(false); fetch('/api/bambu/status', { method: 'DELETE' }); }}
           className="font-mono text-[9px] text-white/20 hover:text-red-400/70 transition-colors uppercase tracking-widest">
           Disconnect

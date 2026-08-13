@@ -1313,7 +1313,7 @@ export function WebshooterPage({ onNavigateHome }: { onNavigateHome: () => void 
         </div>
       </div>
 
-      {/* BUILD — large action button, sitting left of the Jarvis ring */}
+      {/* BUILD — large action button, sitting left of the Camille ring */}
       <motion.button
         onClick={startBuild}
         className="absolute bottom-14 right-[240px] z-20 group select-none"

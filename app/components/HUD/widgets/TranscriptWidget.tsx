@@ -12,7 +12,7 @@ interface Line {
 const buffer: Line[] = [];
 
 /** Live conversation log. JarvisAssistant dispatches jarvis:transcript events
- *  for both the user's speech and Jarvis's replies. */
+ *  for both the user's speech and Camille's replies. */
 export function TranscriptWidget() {
   const [lines, setLines] = useState<Line[]>([...buffer]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -53,7 +53,7 @@ export function TranscriptWidget() {
               className="font-mono text-[8px] font-bold uppercase tracking-[0.25em]"
               style={{ color: l.role === 'jarvis' ? 'var(--accent-hex, #22d3ee)' : 'rgba(255,255,255,0.45)' }}
             >
-              {l.role === 'jarvis' ? 'Jarvis' : 'You'}
+              {l.role === 'jarvis' ? 'Camille' : 'You'}
             </span>
             <span className="font-mono text-[7px] text-white/20">
               {new Date(l.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

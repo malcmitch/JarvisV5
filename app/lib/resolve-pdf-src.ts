@@ -55,7 +55,7 @@ export function resolvePdfDisplayUrl(source: string): {
     return {
       url: prefix + normalized,
       hint:
-        'Local files usually need the Jarvis desktop app. In the browser, prefer an https URL or a file under /public (e.g. /manual.pdf).',
+        'Local files usually need the Camille desktop app. In the browser, prefer an https URL or a file under /public (e.g. /manual.pdf).',
     };
   }
 

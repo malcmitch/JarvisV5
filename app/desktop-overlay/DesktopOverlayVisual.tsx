@@ -62,7 +62,7 @@ export function DesktopOverlayVisual({
           </svg>
 
           <img className="desktop-ring desktop-ring-inner" src="/assets/ring1.png" alt="" draggable={false} />
-          <img className="desktop-logo" src={`/assets/${initialLogo}.png`} alt="Jarvis Logo" draggable={false} />
+          <img className="desktop-logo" src={`/assets/${initialLogo}.png`} alt="Camille Logo" draggable={false} />
         </section>
       </main>
     </>

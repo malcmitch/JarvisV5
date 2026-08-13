@@ -26,9 +26,9 @@ export type RealtimeModel = 'gpt-realtime-2' | 'gpt-realtime-1.5' | 'gpt-realtim
 /**
  * Account status, and the way back in.
  *
- * The sign-in screen only appears when Jarvis is signed out, so without this
+ * The sign-in screen only appears when Camille is signed out, so without this
  * there is nowhere to sign in from once you are in — and nowhere to see why
- * Jarvis has stopped talking, which is nearly always an empty balance rather
+ * Camille has stopped talking, which is nearly always an empty balance rather
  * than anything configured wrongly.
  */
 function AccountSection() {
@@ -59,7 +59,7 @@ function AccountSection() {
       <div className="space-y-2">
         <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Account</label>
         <p className="text-xs text-cyan-700">
-          Sign in from the Jarvis desktop app. This browser view uses whichever account
+          Sign in from the Camille desktop app. This browser view uses whichever account
           that machine is signed in to.
         </p>
       </div>
@@ -114,7 +114,7 @@ function AccountSection() {
       ) : (
         <>
           <p className="text-xs text-cyan-700">
-            Jarvis needs an account to speak and think. Signing in happens in your
+            Camille needs an account to speak and think. Signing in happens in your
             browser, then brings you back here.
           </p>
           {state?.error && <p className="text-xs text-red-400/80">{state.error}</p>}
@@ -179,7 +179,7 @@ export interface JarvisSettings {
   /** Skip the homescreen startup intro animation */
   disableIntroAnimation?: boolean;
   /**
-   * Which memory bucket Jarvis reads and writes. Give each person on a shared
+   * Which memory bucket Camille reads and writes. Give each person on a shared
    * install their own value to keep their remembered facts separate. Empty
    * means everyone shares the `default` bucket.
    */
@@ -309,7 +309,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
   if (!isOpen) return null;
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'jarvis',    label: 'Jarvis'     },
+    { id: 'jarvis',    label: 'Camille'     },
     { id: 'abilities', label: 'Abilities'  },
     { id: 'ui',        label: 'UI'         },
     { id: 'security',  label: 'Security'   },
@@ -353,7 +353,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
         {/* Content */}
         <div className={`p-6 space-y-6 overflow-y-auto ${activeTab === 'system' ? 'max-h-[65vh]' : 'max-h-[55vh]'}`}>
 
-          {/* Jarvis Tab */}
+          {/* Camille Tab */}
           {activeTab === 'jarvis' && (
             <>
               {/* Wake Word Configuration */}
@@ -378,7 +378,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                   </button>
                 </div>
                 <p className="text-[10px] text-cyan-700 leading-tight">
-                  When enabled, saying &quot;Jarvis&quot; will activate the assistant using local wake word detection.
+                  When enabled, saying &quot;Camille&quot; will activate the assistant using local wake word detection.
                 </p>
                 
                 {settings.wakeWordEnabled && (
@@ -410,7 +410,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
 
               <AccountSection />
 
-              {/* Voice runs on the signed-in Jarvis account — no keys to enter. */}
+              {/* Voice runs on the signed-in Camille account — no keys to enter. */}
               <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">First Message <span className="text-cyan-700 normal-case font-normal">(optional override)</span></label>
@@ -433,7 +433,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                       className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded px-3 py-2 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.3)] transition-all font-mono text-sm"
                     />
                     <p className="text-xs text-cyan-700">
-                      Names the memory bucket Jarvis remembers you in. Give each person their own value to keep separate memories on a shared machine. Empty shares one <span className="font-mono">default</span> bucket.
+                      Names the memory bucket Camille remembers you in. Give each person their own value to keep separate memories on a shared machine. Empty shares one <span className="font-mono">default</span> bucket.
                     </p>
                   </div>
               </div>
@@ -550,7 +550,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
           {activeTab === 'abilities' && (
             <div className="space-y-3">
               <p className="text-xs text-cyan-600">
-                Enable modules to give Jarvis access to real-time data and actions.
+                Enable modules to give Camille access to real-time data and actions.
               </p>
               <div className="space-y-2">
                 {FUNCTION_REGISTRY.map((fn) => {
@@ -665,7 +665,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                 </div>
                 <p className="text-[10px] text-cyan-700 leading-tight">
                   A futuristic PIN lock — drag the floating number bubbles into the reactor ring to unlock.
-                  Jarvis can lock the interface by voice (&quot;lock it down&quot;) via the Lock Interface ability, but
+                  Camille can lock the interface by voice (&quot;lock it down&quot;) via the Lock Interface ability, but
                   unlocking always requires the PIN on screen.
                 </p>
               </div>
@@ -749,7 +749,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
           {activeTab === 'system' && (
             <div className="space-y-5">
               <p className="text-xs text-cyan-600 leading-relaxed">
-                Jarvis usually detects your shell and Python automatically. Use overrides only if Terminal or Computer Use
+                Camille usually detects your shell and Python automatically. Use overrides only if Terminal or Computer Use
                 fail after a restart. Run diagnostics and share the JSON if you need support.
               </p>
 
@@ -944,7 +944,7 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                   })}
                 </div>
                 <p className="text-[10px] text-cyan-700">
-                  After the idle timeout, Jarvis dims to a full-screen standby clock. Any input wakes it.
+                  After the idle timeout, Camille dims to a full-screen standby clock. Any input wakes it.
                 </p>
               </div>
 

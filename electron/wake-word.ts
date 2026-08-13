@@ -197,7 +197,7 @@ export class WakeWordService {
     switch (event) {
       case 'detected': {
         const score = msg.score as number;
-        console.log(`[WakeWord] "Jarvis" detected (score=${score})`);
+        console.log(`[WakeWord] "Camille" detected (score=${score})`);
         this.onDetect?.();
         break;
       }

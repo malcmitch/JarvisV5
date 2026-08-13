@@ -100,13 +100,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
 
   const token = await getAccessToken();
   if (!token) {
-    deny(res, 401, 'Please sign in to Jarvis.');
+    deny(res, 401, 'Please sign in to Camille.');
     return;
   }
 
   const body = req.method === 'GET' ? undefined : await readBody(req);
   if (body === null) {
-    deny(res, 413, 'That request is too large to send through Jarvis.');
+    deny(res, 413, 'That request is too large to send through Camille.');
     return;
   }
 
@@ -186,7 +186,7 @@ export async function startAiProxy(): Promise<Record<string, string>> {
 
   const port = await new Promise<number>((resolve, reject) => {
     server!.once('error', reject);
-    // Port 0 asks the OS for a free one, so two Jarvis installs cannot collide.
+    // Port 0 asks the OS for a free one, so two Camille installs cannot collide.
     server!.listen(0, '127.0.0.1', () => {
       const address = server!.address();
       if (address && typeof address === 'object') resolve(address.port);

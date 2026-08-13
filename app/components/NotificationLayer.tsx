@@ -33,7 +33,7 @@ export function NotificationLayer() {
       if (status.permissionDenied) {
         notify(
           'Touch screen blocked',
-          `${status.product ?? 'Touch panel'} detected, but macOS needs the Input Monitoring permission. Enable Jarvis in System Settings → Privacy & Security → Input Monitoring, then replug the panel.`,
+          `${status.product ?? 'Touch panel'} detected, but macOS needs the Input Monitoring permission. Enable Camille in System Settings → Privacy & Security → Input Monitoring, then replug the panel.`,
           'warn',
           12000,
         );

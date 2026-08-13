@@ -228,7 +228,7 @@ function createDesktopWindow(kind: 'visual' | 'hitbox') {
     skipTaskbar: true,
     hasShadow: false,
     alwaysOnTop: true,
-    title: kind === 'visual' ? 'Jarvis Desktop Visual' : 'Jarvis Desktop Hitbox',
+    title: kind === 'visual' ? 'Camille Desktop Visual' : 'Camille Desktop Hitbox',
     icon: path.join(__dirname, '..', 'buildfiles', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -305,7 +305,7 @@ function hitboxHtml(muted = false) {
     </style>
   </head>
   <body>
-    <button id="hitbox" aria-label="${muted ? 'Unmute Jarvis' : 'Mute Jarvis'}"></button>
+    <button id="hitbox" aria-label="${muted ? 'Unmute Camille' : 'Mute Camille'}"></button>
     <script>
       const button = document.getElementById('hitbox');
       let passthrough = true;
@@ -326,7 +326,7 @@ function hitboxHtml(muted = false) {
       }
       button.addEventListener('click', () => window.electron?.overlayClick?.());
       window.electron?.onDesktopPanelMuted?.((muted) => {
-        button.setAttribute('aria-label', muted ? 'Unmute Jarvis' : 'Mute Jarvis');
+        button.setAttribute('aria-label', muted ? 'Unmute Camille' : 'Mute Camille');
       });
     </script>
   </body>
@@ -596,7 +596,7 @@ function requestAccessibilityAndScreenRecording() {
   const screenStatus = systemPreferences.getMediaAccessStatus('screen');
   if (screenStatus !== 'granted') {
     // Open System Settings directly to the Screen Recording pane so the
-    // user can add Jarvis without hunting through menus.
+    // user can add Camille without hunting through menus.
     shell.openExternal(
       'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
     );
@@ -741,7 +741,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'Jarvis',
+    title: 'Camille',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#00000000',
     transparent: true,
@@ -815,7 +815,7 @@ function setupPermissions() {
 
 app.whenReady().then(async () => {
   // Default BrowserWindow title is "Electron"; menu / Dock name in dev follows the binary unless set here.
-  app.setName('Jarvis');
+  app.setName('Camille');
 
   registerJarvisPdfProtocol();
   setupPermissions();
@@ -850,9 +850,9 @@ app.whenReady().then(async () => {
             : JSON.stringify(err);
       dialog.showMessageBoxSync({
         type: 'error',
-        title: 'Jarvis — could not start',
+        title: 'Camille — could not start',
         message:
-          'The local web server did not start, so Jarvis cannot load its interface.',
+          'The local web server did not start, so Camille cannot load its interface.',
         detail: message,
       });
       app.quit();
@@ -871,7 +871,7 @@ app.whenReady().then(async () => {
   wakeWordService = new WakeWordService();
   wakeWordService!.setCallbacks(
     () => {
-      console.log('[WakeWord] Jarvis detected!');
+      console.log('[WakeWord] Camille detected!');
 
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('hey-jarvis:detected');

@@ -385,7 +385,7 @@ function Scene({ fftData, status, logoUrl }: Props) {
       {/* Stray fast-orbit nodes */}
       <instancedMesh ref={strayMeshRef} args={[strayGeo, strayMat, STRAY_COUNT]} renderOrder={4} />
 
-      {/* Jarvis logo particle cloud */}
+      {/* Camille logo particle cloud */}
       {logoPoints.length > 0 && (
         <instancedMesh ref={logoRef} args={[logoGeo, logoMat, logoCount]} renderOrder={5} />
       )}

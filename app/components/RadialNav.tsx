@@ -209,7 +209,7 @@ export function RadialNav({ currentPage }: { currentPage: string }) {
                 exit={{ opacity: 0 }}
                 className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
               >
-                <span className="font-mono text-[10px] uppercase tracking-[0.5em] text-white/40">Jarvis</span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.5em] text-white/40">Camille</span>
                 <span className="font-mono text-[13px] uppercase tracking-[0.35em] mt-1" style={{ color: 'var(--accent-hex, #22d3ee)' }}>
                   Navigation
                 </span>

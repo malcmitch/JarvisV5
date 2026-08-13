@@ -33,7 +33,7 @@ const RETIRED_CREDENTIALS = ['apiKey', 'elevenLabsApiKey', 'elevenLabsAgentId'] 
 /**
  * Strips the AI credentials this file used to carry.
  *
- * Upgrading does not empty the file, so a machine that ran an older Jarvis still
+ * Upgrading does not empty the file, so a machine that ran an older Camille still
  * has a real OpenAI key sitting in `jarvis_settings` — and this route is
  * unauthenticated by design, because the phones and tablets on the LAN read
  * their settings through it. Removing the keys on the way past means they stop

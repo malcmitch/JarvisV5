@@ -62,7 +62,7 @@ export function AudioTestPage({ onNavigateHome }: Props) {
     setStatus(null);
     const trimmed = text.trim();
     if (!trimmed) {
-      setError('Enter something for Jarvis to say.');
+      setError('Enter something for Camille to say.');
       return null;
     }
 
@@ -266,7 +266,7 @@ export function AudioTestPage({ onNavigateHome }: Props) {
                 color: 'rgba(216,180,254,0.85)',
               }}
             >
-              Jarvis account voice
+              Camille account voice
               {' · agent default voice'}
             </div>
           )}
@@ -292,7 +292,7 @@ export function AudioTestPage({ onNavigateHome }: Props) {
               }}
               rows={6}
               maxLength={4096}
-              placeholder="Type what you want Jarvis to say…"
+              placeholder="Type what you want Camille to say…"
               className="w-full resize-y rounded-xl px-4 py-3 text-sm text-white/90 leading-relaxed focus:outline-none transition-shadow"
               style={{
                 background: 'rgba(2,12,28,0.85)',

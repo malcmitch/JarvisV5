@@ -198,7 +198,7 @@ function RoundDisplay() {
 
     if (!conversationToken) {
       setStatus('error');
-      setError(minted?.error ?? 'Open Jarvis on this machine and sign in to use voice.');
+      setError(minted?.error ?? 'Open Camille on this machine and sign in to use voice.');
       return;
     }
 

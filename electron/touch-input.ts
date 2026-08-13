@@ -4,7 +4,7 @@
  * macOS enumerates these panels as HID digitizers but has no native
  * touchscreen concept, so the touch reports are simply discarded by the OS.
  * This service opens the raw HID device, parses the multi-touch reports and
- * replays them into the Jarvis window as synthetic mouse events
+ * replays them into the Camille window as synthetic mouse events
  * (tap = click, touch-drag = click-drag). Nothing else about the app changes:
  * if no panel is plugged in, this service just idles.
  *

@@ -1173,7 +1173,7 @@ export function SpidermanPage({ onNavigateHome }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [selectSuit, unfocus]);
 
-  // BUILD: hand the model to the fabrication bay (Jarvis speaks once a
+  // BUILD: hand the model to the fabrication bay (Camille speaks once a
   // machine is actually selected there, not here)
   const startBuild = useCallback(() => {
     const item = items[clamp(uiFocused ?? uiSelected, 0, count - 1)];

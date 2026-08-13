@@ -65,7 +65,7 @@ export interface McpServerState {
   nextId: number;
 }
 
-/** Tool exposed by an MCP server, adapted for Jarvis's function registry */
+/** Tool exposed by an MCP server, adapted for Camille's function registry */
 export interface McpExposedTool {
   name: string;
   label: string;

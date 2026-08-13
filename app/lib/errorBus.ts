@@ -1,5 +1,5 @@
 /**
- * Jarvis Error Bus
+ * Camille Error Bus
  *
  * Intercepts console.error, window.onerror, and unhandledrejection so every
  * real error from any source (OpenAI Realtime, ElevenLabs, function calls,

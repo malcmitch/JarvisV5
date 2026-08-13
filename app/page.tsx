@@ -102,13 +102,13 @@ export default function Home() {
     const navType = nav?.type ?? 'unknown'; // 'navigate' | 'reload' | 'back_forward' | 'prerender'
     const restored = localStorage.getItem('jarvis_current_page');
     console.log(
-      `%c[Jarvis Page] MOUNTED — nav type: "${navType}" | restored page: "${restored ?? 'none'}" | timestamp: ${new Date().toLocaleTimeString()}`,
+      `%c[Camille Page] MOUNTED — nav type: "${navType}" | restored page: "${restored ?? 'none'}" | timestamp: ${new Date().toLocaleTimeString()}`,
       'background:#1a1a2e;color:#00d4ff;font-weight:bold;padding:2px 6px;border-radius:3px'
     );
     if (navType === 'reload') {
-      console.warn('[Jarvis Page] ⚠️  This was a hard browser reload (F5 or programmatic window.location.reload).');
+      console.warn('[Camille Page] ⚠️  This was a hard browser reload (F5 or programmatic window.location.reload).');
     } else if (navType === 'navigate') {
-      console.warn('[Jarvis Page] ⚠️  This was a fresh navigation — likely Next.js HMR reconnect or iOS/Android tab jettison (browser killed the tab due to memory pressure).');
+      console.warn('[Camille Page] ⚠️  This was a fresh navigation — likely Next.js HMR reconnect or iOS/Android tab jettison (browser killed the tab due to memory pressure).');
     }
   }, []);
 
@@ -136,13 +136,13 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  // Play pre-recorded Jarvis intro voice as soon as the boot sequence starts
+  // Play pre-recorded Camille intro voice as soon as the boot sequence starts
   useEffect(() => {
     if (!showIntro) return;
     void playSfxAwait('jarvis_intro_preferences', 1);
   }, [showIntro]);
 
-  // Listen for navigate events dispatched by Jarvis functions
+  // Listen for navigate events dispatched by Camille functions
   useEffect(() => {
     const handler = (e: Event) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

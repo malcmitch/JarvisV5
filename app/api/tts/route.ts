@@ -6,7 +6,7 @@ import { requireAiProxy, speechEndpoint, AI_UNAVAILABLE } from '../../lib/aiProx
  *
  * Both providers are reached through the signed-in account rather than a
  * user-supplied key: ElevenLabs via the account server's own text-to-speech
- * route, which already knows which voice Jarvis speaks with, and OpenAI through
+ * route, which already knows which voice Camille speaks with, and OpenAI through
  * the metered proxy. Neither credential exists on this machine.
  */
 
@@ -34,8 +34,8 @@ function audioResponse(audio: ArrayBuffer, provider: Provider, voice: string) {
       'Content-Type': 'audio/mpeg',
       'Content-Disposition': 'attachment; filename="jarvis-speech.mp3"',
       'Cache-Control': 'no-store',
-      'X-Jarvis-Provider': provider,
-      'X-Jarvis-Voice': voice,
+      'X-Camille-Provider': provider,
+      'X-Camille-Voice': voice,
     },
   });
 }

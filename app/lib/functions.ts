@@ -33,7 +33,7 @@ export function readToolkitOverrides(): {
 
 /**
  * Which memory bucket this client writes to. Set `memoryAccountId` in Settings
- * to give each person their own memories on a shared Jarvis install; everything
+ * to give each person their own memories on a shared Camille install; everything
  * falls back to a single `default` bucket when unset.
  */
 export function getMemoryAccountId(): string {
@@ -127,7 +127,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'get_date',
     label: 'Get Date',
-    description: 'Tell Jarvis the current date when asked',
+    description: 'Tell Camille the current date when asked',
     tool: {
       type: 'function',
       name: 'get_date',
@@ -146,7 +146,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'get_time',
     label: 'Get Time',
-    description: 'Tell Jarvis the current time when asked',
+    description: 'Tell Camille the current time when asked',
     tool: {
       type: 'function',
       name: 'get_time',
@@ -164,7 +164,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'get_location',
     label: 'Get Location',
-    description: "Tell Jarvis the user's current GPS location when asked",
+    description: "Tell Camille the user's current GPS location when asked",
     tool: {
       type: 'function',
       name: 'get_location',
@@ -192,7 +192,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'get_battery_level',
     label: 'Get Battery Level',
-    description: "Tell Jarvis the user's current device battery level when asked",
+    description: "Tell Camille the user's current device battery level when asked",
     tool: {
       type: 'function',
       name: 'get_battery_level',
@@ -219,7 +219,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'computer_use',
     label: 'Computer Use',
-    description: "Let Jarvis control your computer to complete tasks (e.g. 'Open Discord')",
+    description: "Let Camille control your computer to complete tasks (e.g. 'Open Discord')",
     tool: {
       type: 'function',
       name: 'computer_use',
@@ -260,7 +260,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'xray',
     label: 'X-Ray',
-    description: "Let Jarvis capture your camera and generate an X-ray scan of what it sees",
+    description: "Let Camille capture your camera and generate an X-ray scan of what it sees",
     tool: {
       type: 'function',
       name: 'xray',
@@ -488,7 +488,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: '3d_printing',
     label: '3D Printing',
-    description: 'Let Jarvis find a model and send a 3D print job via Bambu Studio',
+    description: 'Let Camille find a model and send a 3D print job via Bambu Studio',
     tool: {
       type: 'function',
       name: '3d_printing',
@@ -525,7 +525,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'run_shell_command',
     label: 'Shell / Terminal',
-    description: 'Let Jarvis run terminal commands to open apps, manage files, and control the system',
+    description: 'Let Camille run terminal commands to open apps, manage files, and control the system',
     tool: {
       type: 'function',
       name: 'run_shell_command',
@@ -575,7 +575,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'web_search',
     label: 'Web Search',
-    description: 'Let Jarvis search the web and return real-time results',
+    description: 'Let Camille search the web and return real-time results',
     tool: {
       type: 'function',
       name: 'web_search',
@@ -610,7 +610,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'take_photo',
     label: 'Camera',
-    description: "Let Jarvis take a photo with your camera and display it on screen",
+    description: "Let Camille take a photo with your camera and display it on screen",
     tool: {
       type: 'function',
       name: 'take_photo',
@@ -657,7 +657,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'control_music',
     label: 'Music Control',
-    description: 'Let Jarvis control music playback (play, pause, skip, volume)',
+    description: 'Let Camille control music playback (play, pause, skip, volume)',
     tool: {
       type: 'function',
       name: 'control_music',
@@ -699,7 +699,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'get_now_playing',
     label: 'Now Playing',
-    description: "Let Jarvis check and display what's currently playing",
+    description: "Let Camille check and display what's currently playing",
     tool: {
       type: 'function',
       name: 'get_now_playing',
@@ -729,7 +729,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'show_hud_text',
     label: 'HUD Text Note',
-    description: 'Let Jarvis show chosen text in a TEXT NOTE widget on the HUD',
+    description: 'Let Camille show chosen text in a TEXT NOTE widget on the HUD',
     tool: {
       type: 'function',
       name: 'show_hud_text',
@@ -772,7 +772,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'control_hud',
     label: 'HUD Control',
-    description: 'Let Jarvis open, close, or reset widgets on the home screen',
+    description: 'Let Camille open, close, or reset widgets on the home screen',
     tool: {
       type: 'function',
       name: 'control_hud',
@@ -784,7 +784,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         "'timer' (countdowns and reminders), 'weather-radar' (animated precipitation map), 'camera-feed' (live webcam), " +
         "'transcript' (conversation log), 'uptime' (host reachability monitor), 'orbit' (ISS tracker + sun/moon), " +
         "'calculator' (futuristic compute / arithmetic pad). " +
-        "IMPORTANT: The 'map' widget here is a small HUD minimap overlay — it is NOT the full Jarvis Map page. " +
+        "IMPORTANT: The 'map' widget here is a small HUD minimap overlay — it is NOT the full Camille Map page. " +
         "If the user asks to 'open the map', 'go to the map page', 'show the map', 'navigate on a map', or wants to fly to a location/draw a route, use map_command instead. " +
         "When opening the 'text' widget, optionally supply text_content and title. " +
         "When opening the 'pdf' widget, supply pdf_source (https URL, site path like /file.pdf, or absolute filesystem path in the desktop app).",
@@ -849,7 +849,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'open_url',
     label: 'Open URL',
-    description: 'Let Jarvis open a website or URL in a new browser tab',
+    description: 'Let Camille open a website or URL in a new browser tab',
     tool: {
       type: 'function',
       name: 'open_url',
@@ -881,7 +881,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       name: 'open_pdf',
       description:
         'Open a PDF in the on-screen HUD viewer. Use when the user wants to view, show, or display a PDF. ' +
-        'source may be a full https URL, a site path served from public (e.g. /manual.pdf), or an absolute filesystem path when running the Jarvis desktop app.',
+        'source may be a full https URL, a site path served from public (e.g. /manual.pdf), or an absolute filesystem path when running the Camille desktop app.',
       parameters: {
         type: 'object',
         properties: {
@@ -1009,14 +1009,14 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'desktop_mode',
     label: 'Desktop Mode',
-    description: 'Turn Jarvis into a floating transparent desktop logo, move it between screen corners, or restore the full app',
+    description: 'Turn Camille into a floating transparent desktop logo, move it between screen corners, or restore the full app',
     tool: {
       type: 'function',
       name: 'desktop_mode',
       description:
-        'Control Jarvis desktop / hover / transparent / floating panel mode. ' +
+        'Control Camille desktop / hover / transparent / floating panel mode. ' +
         'Use this when the user says "desktop mode", "transparent mode", "hover mode", "floating panel", "stay on top", "move to the top right corner", or "go back to full app". ' +
-        'In desktop mode only the Jarvis logo remains visible, stays above other apps, and clicking it toggles mute. ' +
+        'In desktop mode only the Camille logo remains visible, stays above other apps, and clicking it toggles mute. ' +
         'For corner-only requests, set action="move" and position to the requested corner.',
       parameters: {
         type: 'object',
@@ -1024,12 +1024,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           action: {
             type: 'string',
             enum: ['enable', 'disable', 'move'],
-            description: 'enable = enter transparent desktop mode. disable = restore full Jarvis app. move = move Jarvis logo to another corner.',
+            description: 'enable = enter transparent desktop mode. disable = restore full Camille app. move = move Camille logo to another corner.',
           },
           position: {
             type: 'string',
             enum: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
-            description: 'Target corner for the Jarvis logo. Defaults to bottom-right when enabling desktop mode.',
+            description: 'Target corner for the Camille logo. Defaults to bottom-right when enabling desktop mode.',
           },
         },
         required: ['action'],
@@ -1057,9 +1057,9 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       }
 
       const messages: Record<string, string> = {
-        enable: `Desktop mode enabled. Jarvis is floating in the ${position} corner.`,
-        disable: 'Desktop mode disabled. Restored full Jarvis app.',
-        move: `Jarvis panel moved to the ${position} corner.`,
+        enable: `Desktop mode enabled. Camille is floating in the ${position} corner.`,
+        disable: 'Desktop mode disabled. Restored full Camille app.',
+        move: `Camille panel moved to the ${position} corner.`,
       };
 
       return { success: true, action, position, message: messages[action] };
@@ -1068,12 +1068,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'jarvis_disconnect',
     label: 'Disconnect / Mute',
-    description: 'End the current Jarvis session (equivalent to clicking the logo / pressing disconnect)',
+    description: 'End the current Camille session (equivalent to clicking the logo / pressing disconnect)',
     tool: {
       type: 'function',
       name: 'jarvis_disconnect',
       description:
-        'Immediately end the current Jarvis voice session and go silent. ' +
+        'Immediately end the current Camille voice session and go silent. ' +
         'Call this when the user says anything like "mute", "stop listening", "end call", "go to sleep", "disconnect", "shut up", "be quiet", "that\'s enough", or similar. ' +
         'Do NOT call navigate_to_page first — just call this.',
       parameters: { type: 'object', properties: {}, required: [] },
@@ -1090,12 +1090,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'navigate_to_page',
     label: 'Navigate to Page',
-    description: 'Switch Jarvis to a different view — e.g. open the live news feed and stock ticker',
+    description: 'Switch Camille to a different view — e.g. open the live news feed and stock ticker',
     tool: {
       type: 'function',
       name: 'navigate_to_page',
       description:
-        'Navigate Jarvis to a different page. Use for "home", "news", "calendar", "home-assistant", "3d-printers", "music", "spiderman", "manufacturing", "webshooter", "onewheel", "social", "audio-test", or "round-display". ' +
+        'Navigate Camille to a different page. Use for "home", "news", "calendar", "home-assistant", "3d-printers", "music", "spiderman", "manufacturing", "webshooter", "onewheel", "social", "audio-test", or "round-display". ' +
         '"news" opens the live news feed with streaming video and market data. ' +
         '"calendar" opens the calendar and task planner. ' +
         '"home-assistant" opens the smart home control panel for lights, switches, climate, and more. ' +
@@ -1106,9 +1106,9 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         '"webshooter" opens the web-shooter designer lab — a holographic web-shooter base where the user designs taser web, web fluid, web grenade, and acid web cartridges and loads them onto the shooter. Use when the user mentions web shooters, web fluid, cartridges, or the web lab. ' +
         '"onewheel" opens Project OneWheel — a holographic Onewheel Pint with modular add-ons (Unitree Go1 dog mount and mag-lock boots). Use when the user mentions Onewheel, Project OneWheel, or the Onewheel page. ' +
         '"social" opens the Social Command dashboard — four embedded browsers (Instagram, TikTok, Facebook, YouTube) plus an AI comment-reply engine. Use when the user mentions social media, comment replies, Instagram, TikTok, Facebook, or YouTube dashboard. ' +
-        '"audio-test" opens the Audio Lab — type text for Jarvis to speak and save it as an MP3, switching between OpenAI and ElevenLabs. Use when the user wants to test voice, generate speech, or export audio. ' +
-        '"round-display" switches to a full-screen circular Jarvis visualizer optimised for round displays. ' +
-        '"home" returns to the main Jarvis home screen. ' +
+        '"audio-test" opens the Audio Lab — type text for Camille to speak and save it as an MP3, switching between OpenAI and ElevenLabs. Use when the user wants to test voice, generate speech, or export audio. ' +
+        '"round-display" switches to a full-screen circular Camille visualizer optimised for round displays. ' +
+        '"home" returns to the main Camille home screen. ' +
         'NEVER use this for map or location requests — use map_command instead.',
       parameters: {
         type: 'object',
@@ -1116,7 +1116,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
           page: {
             type: 'string',
             enum: ['home', 'news', 'calendar', 'home-assistant', '3d-printers', 'music', 'spiderman', 'manufacturing', 'webshooter', 'onewheel', 'social', 'audio-test', 'round-display'],
-            description: '"home" = main Jarvis view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner. "home-assistant" = smart home control panel. "3d-printers" = Bambu Lab 3D printer dashboard. "music" = full-screen music player. "spiderman" = Spider-Man suit armory with a 3D holographic suit carousel. "manufacturing" = fabrication bay for building 3D components on printers/lasers/CNC. "webshooter" = web-shooter designer lab for building taser web / web fluid / web grenade / acid web cartridges. "onewheel" = Project OneWheel holographic deck with Unitree Go1 and mag-lock boot add-ons. "social" = Social Command dashboard with Instagram/TikTok/Facebook/YouTube browsers and AI comment replies. "audio-test" = Audio Lab for typing speech scripts, previewing, and saving MP3s via OpenAI or ElevenLabs. "round-display" = full-screen circular visualizer for round displays.',
+            description: '"home" = main Camille view. "news" = live news + stocks feed. "calendar" = calendar and daily task planner. "home-assistant" = smart home control panel. "3d-printers" = Bambu Lab 3D printer dashboard. "music" = full-screen music player. "spiderman" = Spider-Man suit armory with a 3D holographic suit carousel. "manufacturing" = fabrication bay for building 3D components on printers/lasers/CNC. "webshooter" = web-shooter designer lab for building taser web / web fluid / web grenade / acid web cartridges. "onewheel" = Project OneWheel holographic deck with Unitree Go1 and mag-lock boot add-ons. "social" = Social Command dashboard with Instagram/TikTok/Facebook/YouTube browsers and AI comment replies. "audio-test" = Audio Lab for typing speech scripts, previewing, and saving MP3s via OpenAI or ElevenLabs. "round-display" = full-screen circular visualizer for round displays.',
           },
         },
         required: ['page'],
@@ -1311,7 +1311,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       type: 'function',
       name: 'open_3d_model',
       description:
-        'Open and display a 3D model (GLTF/GLB) in the center of the Jarvis round display. ' +
+        'Open and display a 3D model (GLTF/GLB) in the center of the Camille round display. ' +
         'The model will spin and fill the inner circle with the name displayed beneath it. ' +
         'Use when the user asks to "show", "open", "display", or "load" a 3D model by name. ' +
         'Call navigate_to_page with "round-display" first if not already there.',
@@ -1377,12 +1377,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'map_command',
     label: 'Map Control',
-    description: 'Control the Jarvis map — fly to locations, add markers, draw glowing routes',
+    description: 'Control the Camille map — fly to locations, add markers, draw glowing routes',
     tool: {
       type: 'function',
       name: 'map_command',
       description:
-        'Open the Jarvis Map page and fly to / interact with any location. ' +
+        'Open the Camille Map page and fly to / interact with any location. ' +
         'This is the ONLY function for ANYTHING map or location related. ALWAYS call this — never navigate_to_page or control_hud — when the user says things like: ' +
         '"navigate to X", "show me X", "go to X", "take me to X", "pull up X on the map", "where is X", "open the map", "fly to X", "zoom in on X", "find X", "search for X nearby". ' +
         'For any location request use command=fly_to with location set to the place name. ' +
@@ -1452,12 +1452,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'calendar_command',
     label: 'Calendar',
-    description: 'Open the Jarvis calendar and manage tasks — add, complete, or list tasks for any day',
+    description: 'Open the Camille calendar and manage tasks — add, complete, or list tasks for any day',
     tool: {
       type: 'function',
       name: 'calendar_command',
       description:
-        'Open the Jarvis Calendar page and manage tasks or answer questions about the schedule. ' +
+        'Open the Camille Calendar page and manage tasks or answer questions about the schedule. ' +
         'Use for ANY calendar or schedule question: viewing upcoming events, adding tasks, marking things done, or checking availability. ' +
         'Examples: "add a meeting at 3pm tomorrow" → add_task. "what do I have today?" → list_tasks. "what\'s on my schedule this week?" → get_upcoming. "am I free Friday?" → get_upcoming. "mark gym as done" → complete_task.',
       parameters: {
@@ -1529,7 +1529,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
       }
 
       if (command === 'get_upcoming') {
-        // Return next 7 days for Jarvis to answer any question
+        // Return next 7 days for Camille to answer any question
         const upcoming: string[] = [];
         for (let i = 0; i < 7; i++) {
           const d = new Date(); d.setDate(d.getDate() + i);
@@ -2017,12 +2017,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'add_home_widget',
     label: 'Home Dashboard Widget',
-    description: 'Add or remove a live widget on the Jarvis home dashboard',
+    description: 'Add or remove a live widget on the Camille home dashboard',
     tool: {
       type: 'function',
       name: 'add_home_widget',
       description:
-        'Add or remove a live widget on the Jarvis home screen dashboard. ' +
+        'Add or remove a live widget on the Camille home screen dashboard. ' +
         'Use "add" to place a widget, "remove" to close it. ' +
         'Widget types: ' +
         '"tv" = TV remote control panel. ' +
@@ -2165,12 +2165,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'fullscreen',
     label: 'Fullscreen',
-    description: 'Toggle fullscreen mode on or off for the Jarvis app',
+    description: 'Toggle fullscreen mode on or off for the Camille app',
     tool: {
       type: 'function',
       name: 'fullscreen',
       description:
-        'Enter or exit fullscreen mode for the Jarvis interface. ' +
+        'Enter or exit fullscreen mode for the Camille interface. ' +
         'Use this when the user says "go fullscreen", "fullscreen mode", "make it fullscreen", "exit fullscreen", "leave fullscreen", or "go back to normal".',
       parameters: {
         type: 'object',
@@ -2206,12 +2206,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'lock_interface',
     label: 'Lock Interface',
-    description: 'Let Jarvis lock the interface behind the PIN lock screen',
+    description: 'Let Camille lock the interface behind the PIN lock screen',
     tool: {
       type: 'function',
       name: 'lock_interface',
       description:
-        'Lock the Jarvis interface behind the PIN lock screen. ' +
+        'Lock the Camille interface behind the PIN lock screen. ' +
         'Use when the user says "lock it down", "lock the interface", "security lockdown", "lock up", or similar. ' +
         'The user must have enabled the lock and set a PIN in Settings → Security first. ' +
         'Unlocking requires the PIN on screen — it can NOT be done by voice.',
@@ -2235,7 +2235,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'set_timer',
     label: 'Timers',
-    description: 'Let Jarvis start, cancel, and list countdown timers',
+    description: 'Let Camille start, cancel, and list countdown timers',
     tool: {
       type: 'function',
       name: 'set_timer',
@@ -2301,7 +2301,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'set_reminder',
     label: 'Reminders',
-    description: 'Let Jarvis set reminders that fire an on-screen alert at a specific time',
+    description: 'Let Camille set reminders that fire an on-screen alert at a specific time',
     tool: {
       type: 'function',
       name: 'set_reminder',
@@ -2394,7 +2394,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'hud_layout',
     label: 'HUD Layouts',
-    description: 'Let Jarvis save, load, and manage named HUD widget layouts (e.g. "workshop mode")',
+    description: 'Let Camille save, load, and manage named HUD widget layouts (e.g. "workshop mode")',
     tool: {
       type: 'function',
       name: 'hud_layout',
@@ -2447,7 +2447,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'briefing',
     label: 'Briefing',
-    description: 'Let Jarvis deliver a full status briefing — weather, schedule, headlines, and markets',
+    description: 'Let Camille deliver a full status briefing — weather, schedule, headlines, and markets',
     tool: {
       type: 'function',
       name: 'briefing',
@@ -2536,12 +2536,12 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'set_theme',
     label: 'Theme Control',
-    description: 'Let Jarvis switch the interface color theme by voice',
+    description: 'Let Camille switch the interface color theme by voice',
     tool: {
       type: 'function',
       name: 'set_theme',
       description:
-        'Change the Jarvis interface color theme. Use when the user says "switch to crimson", "go matrix mode", "change the theme", or names a color. ' +
+        'Change the Camille interface color theme. Use when the user says "switch to crimson", "go matrix mode", "change the theme", or names a color. ' +
         'Themes: arc-reactor (cyan/blue, default), midnight (purple), crimson (red), matrix (green), custom (uses the accent color from Settings → UI).',
       parameters: {
         type: 'object',
@@ -2567,7 +2567,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'ambient_mode',
     label: 'Ambient Mode',
-    description: 'Let Jarvis enter or exit the ambient standby screen (dimmed clock display)',
+    description: 'Let Camille enter or exit the ambient standby screen (dimmed clock display)',
     tool: {
       type: 'function',
       name: 'ambient_mode',
@@ -2598,7 +2598,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'remember',
     label: 'Remember',
-    description: 'Let Jarvis save durable facts about you that survive between conversations',
+    description: 'Let Camille save durable facts about you that survive between conversations',
     tool: {
       type: 'function',
       name: 'remember',
@@ -2653,7 +2653,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'recall',
     label: 'Recall',
-    description: 'Let Jarvis search what he remembers about you before answering',
+    description: 'Let Camille search what he remembers about you before answering',
     tool: {
       type: 'function',
       name: 'recall',
@@ -2706,7 +2706,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
   {
     name: 'forget',
     label: 'Forget',
-    description: 'Let Jarvis delete something he remembered when it is wrong or out of date',
+    description: 'Let Camille delete something he remembered when it is wrong or out of date',
     tool: {
       type: 'function',
       name: 'forget',

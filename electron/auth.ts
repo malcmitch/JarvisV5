@@ -1,7 +1,7 @@
 /**
  * Desktop sign-in against jarvisdesktop.com.
  *
- * Jarvis will not run without an account, and the account is what decides how
+ * Camille will not run without an account, and the account is what decides how
  * many credits the user has. Everything here lives in the main process on
  * purpose: the refresh token is the long-lived secret, and the renderer is a
  * browser context running third-party 3D libraries, wake-word code and four
@@ -379,7 +379,7 @@ export async function getAccessToken(): Promise<string | null> {
   if (!refreshed) {
     // A rejected token has already cleared the session, which shows the sign-in
     // screen. A network failure leaves it in place so it can recover — but then
-    // nothing explains why Jarvis has gone quiet, so say so here.
+    // nothing explains why Camille has gone quiet, so say so here.
     if (session) {
       lastError = 'Could not reach your account. Check your connection, then try again.';
     }
@@ -450,7 +450,7 @@ export async function cloudFetch(
 ): Promise<CloudResult> {
   const token = await getAccessToken();
   if (!token) {
-    return { ok: false, status: 401, data: null, error: 'Please sign in to Jarvis.' };
+    return { ok: false, status: 401, data: null, error: 'Please sign in to Camille.' };
   }
 
   try {

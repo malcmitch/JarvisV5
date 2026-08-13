@@ -320,7 +320,7 @@ export function MapPage({ onNavigateHome, pendingCommand, onPendingCommandConsum
           {/* Title pill */}
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/80 border border-cyan-500/20 backdrop-blur-sm">
             <div className={`w-1.5 h-1.5 rounded-full ${ready ? 'bg-cyan-400 animate-pulse' : 'bg-white/20'}`} />
-            <span className="text-[9px] font-mono text-cyan-400/70 uppercase tracking-widest">Jarvis · Map</span>
+            <span className="text-[9px] font-mono text-cyan-400/70 uppercase tracking-widest">Camille · Map</span>
           </div>
           {/* Standardised home button */}
           <button

@@ -80,7 +80,7 @@ export function HomeAssistantWizard({ onComplete, onSkip }: Props) {
           <div>
             <div className="text-white font-mono text-base font-semibold">Home Assistant Setup</div>
             <div className="text-white/30 text-[10px] font-mono uppercase tracking-widest mt-0.5">
-              Connect Jarvis to your smart home
+              Connect Camille to your smart home
             </div>
           </div>
         </div>

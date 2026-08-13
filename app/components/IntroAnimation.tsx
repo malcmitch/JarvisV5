@@ -166,7 +166,7 @@ export function IntroAnimation({
             />
           )}
 
-          {/* ── Jarvis center — sized to EXACTLY match the real JarvisAssistant ── */}
+          {/* ── Camille center — sized to EXACTLY match the real JarvisAssistant ── */}
           {(phase === 'assemble' || phase === 'widgets') && (
             <div className="absolute inset-0 flex items-center justify-center">
               <style>{`
@@ -176,7 +176,7 @@ export function IntroAnimation({
                 }
               `}</style>
               {/*
-                Real Jarvis uses: w-[80vw] max-w-[500px] aspect-square
+                Real Camille uses: w-[80vw] max-w-[500px] aspect-square
                 We replicate that here so the transition is seamless.
               */}
               <div
@@ -264,7 +264,7 @@ export function IntroAnimation({
                 >
                   <Image
                     src={logoSrc}
-                    alt="Jarvis" fill
+                    alt="Camille" fill
                     className="object-contain"
                     draggable={false} priority
                   />
@@ -306,7 +306,7 @@ export function IntroAnimation({
             </div>
           )}
 
-          {/* JARVIS watermark */}
+          {/* CAMILLE watermark */}
           {(phase === 'assemble' || phase === 'widgets') && (
             <motion.div
               className="absolute top-8 right-10 text-right select-none pointer-events-none"
@@ -314,7 +314,7 @@ export function IntroAnimation({
               animate={{ opacity: 0.07 }}
               transition={{ delay: 0.8, duration: 0.6 }}
             >
-              <p className="text-8xl font-black text-white tracking-[0.4em]">JARVIS</p>
+              <p className="text-8xl font-black text-white tracking-[0.4em]">CAMILLE</p>
               <p className="text-xs text-white/60 tracking-[0.5em] mt-1">v5.0 — MARK II INTERFACE</p>
             </motion.div>
           )}

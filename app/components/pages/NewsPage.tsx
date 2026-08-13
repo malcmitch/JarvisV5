@@ -150,7 +150,7 @@ export function NewsPage({ onNavigateHome }: Props) {
             <StocksColumn symbols={settings.stockSymbols} />
           </div>
 
-          {/* Bottom spacer so compact Jarvis (z-60, bottom-right) doesn't overlap stocks */}
+          {/* Bottom spacer so compact Camille (z-60, bottom-right) doesn't overlap stocks */}
           <div className="h-44 shrink-0" />
         </div>
       </div>
