@@ -2,6 +2,14 @@ appId: com.jarvis.assistant.v5
 productName: Jarvis
 copyright: "Copyright © 2026"
 
+# Updates come from Malc's fork. Without this block electron-builder guesses
+# the GitHub owner from the build machine's git remote, which is how the
+# original kcoda36 target ended up baked into app-update.yml.
+publish:
+  provider: github
+  owner: malcmitch
+  repo: JarvisV5
+
 # Sign-in finishes in the browser and comes back as jarvis://auth?code=…, which
 # only works if the installer claims the scheme with the OS.
 protocols:
@@ -106,6 +114,13 @@ mac:
         - "!*.exe"
   target:
     - target: dmg
+      arch:
+        - arm64
+        - x64
+    # electron-updater on macOS installs from zip, not dmg. Shipping the zip
+    # costs nothing now and makes auto-update possible the moment the app is
+    # signed; the dmg remains the human-facing download.
+    - target: zip
       arch:
         - arm64
         - x64
