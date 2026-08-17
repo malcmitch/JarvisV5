@@ -16,6 +16,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface HermesConversation {
   session_key?: string;
+  display_name?: string;
+  chat_name?: string;
   key?: string;
   id?: string;
   name?: string;
@@ -64,7 +66,7 @@ function conversationKey(c: HermesConversation): string {
 }
 
 function conversationName(c: HermesConversation): string {
-  return c.name ?? c.title ?? conversationKey(c) ?? 'unnamed';
+  return c.name ?? c.title ?? c.display_name ?? c.chat_name ?? conversationKey(c) ?? 'unnamed';
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
