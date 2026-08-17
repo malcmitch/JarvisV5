@@ -27,6 +27,7 @@
  */
 
 import { app, shell, safeStorage, ipcMain, BrowserWindow } from 'electron';
+import { localKeys, localMode } from './local-keys';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -100,6 +101,17 @@ const sha256Hex = (value: string) => createHash('sha256').update(value, 'utf8').
 // ---------------------------------------------------------------- state ----
 
 export function authState(): AuthState {
+  // Local mode: the owner's keys stand in for an account. Nothing to sign
+  // into, so the gate stays open and no cloud session exists.
+  if (localMode()) {
+    return {
+      configured: true,
+      signedIn: true,
+      user: { email: 'local mode (your own keys)' } as AuthUser,
+      pending: false,
+      error: null,
+    };
+  }
   return {
     configured: isConfigured,
     signedIn: Boolean(session),
@@ -509,6 +521,8 @@ export async function cloudFetch(
  * function. Read-only, so it is safe to hand to the renderer for display.
  */
 export async function creditStatus(): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  // Local mode: usage is billed by the providers directly; always entitled.
+  if (localMode()) return { ok: true, data: { entitled: true, local: true } };
   const token = await getAccessToken();
   if (!token) return { ok: false, error: 'Not signed in.' };
 
@@ -546,18 +560,54 @@ export function registerAuthIpc(resolveWindow: () => BrowserWindow | null) {
 
   // Voice. The renderer gets a single-conversation token and nothing else; it
   // never sees the account token that bought it.
-  ipcMain.handle('cloud:voice-token', () =>
-    cloudFetch('/api/desktop/elevenlabs/token')
-  );
-  ipcMain.handle('cloud:voice-heartbeat', (_event, minutes: unknown) =>
-    cloudFetch('/api/desktop/voice/heartbeat', {
+  ipcMain.handle('cloud:voice-token', () => {
+    const keys = localKeys();
+    if (keys) return mintLocalVoiceToken(keys);
+    return cloudFetch('/api/desktop/elevenlabs/token');
+  });
+  ipcMain.handle('cloud:voice-heartbeat', (_event, minutes: unknown) => {
+    // Local mode: minutes are ElevenLabs' problem, not an account balance.
+    if (localMode()) return { ok: true };
+    return cloudFetch('/api/desktop/voice/heartbeat', {
       body: { minutes: typeof minutes === 'number' ? minutes : 1 },
-    })
-  );
+    });
+  });
   ipcMain.handle('auth:open-account', async () => {
     await shell.openExternal(`${WEB_ORIGIN}/account`);
   });
   ipcMain.handle('auth:open-signup', async () => {
     await shell.openExternal(`${WEB_ORIGIN}/signup`);
   });
+}
+
+/**
+ * Local mode voice: mint a single-conversation WebRTC token against the
+ * owner's own ElevenLabs agent, shaped like cloudFetch's return so the
+ * renderer cannot tell the difference.
+ */
+async function mintLocalVoiceToken(
+  keys: NonNullable<ReturnType<typeof localKeys>>,
+): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  if (!keys.elevenlabs_api_key) {
+    return { ok: false, error: 'No ElevenLabs key in local-keys.json.' };
+  }
+  if (!keys.elevenlabs_agent_id) {
+    return { ok: false, error: 'No elevenlabs_agent_id in local-keys.json — create your agent first.' };
+  }
+  try {
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(keys.elevenlabs_agent_id)}`,
+      { headers: { 'xi-api-key': keys.elevenlabs_api_key } },
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      return { ok: false, error: `ElevenLabs refused a conversation token (${response.status}): ${detail.slice(0, 200)}` };
+    }
+    const data = (await response.json()) as { token?: string };
+    if (!data.token) return { ok: false, error: 'ElevenLabs returned no token.' };
+    return { ok: true, data: { token: data.token } };
+  } catch (err) {
+    console.error('[auth] Local voice token failed:', err);
+    return { ok: false, error: 'Could not reach ElevenLabs.' };
+  }
 }
