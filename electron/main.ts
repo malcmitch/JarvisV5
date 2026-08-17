@@ -22,6 +22,7 @@ import { TouchInputService, TouchInputStatus } from './touch-input';
 import { SocialViewsService, SocialPlatformId, SocialBounds } from './social-views';
 import { handleDeepLink, registerAuthIpc, restoreSession } from './auth';
 import { startAiProxy, stopAiProxy } from './ai-proxy';
+import { startSelfUpdate } from './self-update';
 
 const isDev = !app.isPackaged;
 const PORT = 3000;
@@ -861,6 +862,10 @@ app.whenReady().then(async () => {
   }
 
   appReady = true;
+
+  // Unsigned build: electron-updater cannot install on macOS, so Camille
+  // checks her own GitHub releases and swaps herself. No-op in dev.
+  startSelfUpdate();
 
   // Sign back in from the remembered refresh token, then play out a link that
   // arrived while the app was still starting.

@@ -44,7 +44,7 @@ function applyServerEnvDefaults(name: string, cfg: McpServerConfig): McpServerCo
   return { ...cfg, env };
 }
 
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 300_000  // 5 min: Hermes agent tasks routinely outlive 30s;
 const MCP_PROTOCOL_VERSION = '2025-03-26';
 
 function getDynamicConfigPath(): string {
