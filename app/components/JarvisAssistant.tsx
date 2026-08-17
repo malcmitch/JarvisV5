@@ -1405,7 +1405,7 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
                 {status === 'listening' ? (
                   'Establishing connection...'
                 ) : status === 'active' ? (
-                  'J.A.R.V.I.S. is online. Click status to disconnect.'
+                  'C.A.M.I.L.L.E. is online. Click status to disconnect.'
                 ) : status === 'error' ? (
                   <>
                     Connection error. Check Settings.

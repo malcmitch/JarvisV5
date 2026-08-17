@@ -13,7 +13,7 @@ const BOOT_LINES = [
   'LOADING ENVIRONMENTAL SENSORS...',
   'CALIBRATING THREAT ASSESSMENT...',
   'ESTABLISHING SECURE UPLINK...',
-  'J.A.R.V.I.S. ONLINE',
+  'C.A.M.I.L.L.E. ONLINE',
 ];
 
 export function IntroAnimation({
