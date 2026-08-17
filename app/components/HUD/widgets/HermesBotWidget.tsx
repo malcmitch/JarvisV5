@@ -58,7 +58,11 @@ async function callHermes(tool: string, args: Record<string, unknown>): Promise<
     body: JSON.stringify({ server: 'hermes', tool, arguments: args }),
   });
   if (!res.ok) throw new Error(`hermes ${tool} failed (${res.status})`);
-  return parseToolResult(await res.json());
+  const parsed = parseToolResult(await res.json());
+  if (parsed && typeof parsed === 'object' && typeof parsed.error === 'string') {
+    throw new Error(parsed.error);
+  }
+  return parsed;
 }
 
 function conversationKey(c: HermesConversation): string {
@@ -67,6 +71,19 @@ function conversationKey(c: HermesConversation): string {
 
 function conversationName(c: HermesConversation): string {
   return c.name ?? c.title ?? c.display_name ?? c.chat_name ?? conversationKey(c) ?? 'unnamed';
+}
+
+/**
+ * messages_send wants "platform:id" (e.g. "telegram:6236908795"), while
+ * conversations are keyed "agent:main:telegram:dm:6236908795". Derive the
+ * former from the latter.
+ */
+function conversationTarget(c: HermesConversation): string {
+  const key = conversationKey(c);
+  const parts = key.split(':');
+  const id = parts[parts.length - 1] ?? '';
+  const platform = c.platform ?? parts[2] ?? '';
+  return platform && id ? `${platform}:${id}` : key;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -95,7 +112,9 @@ const POLL_MS = 4000;
 export function HermesBotWidget({ widgetId }: { widgetId: string }) {
   const storageKey = `camille_hermes_bot_${widgetId}`;
   const [conversations, setConversations] = useState<HermesConversation[]>([]);
+  const [channels, setChannels] = useState<HermesConversation[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<string>('');
   const [selectedName, setSelectedName] = useState<string>('');
   const [messages, setMessages] = useState<HermesMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -108,11 +127,12 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? 'null') as
-        | { key: string; name: string }
+        | { key: string; name: string; target?: string }
         | null;
       if (saved?.key) {
         setSelected(saved.key);
         setSelectedName(saved.name ?? saved.key);
+        setSelectedTarget(saved.target ?? saved.key);
       }
     } catch {
       // First run for this widget.
@@ -123,6 +143,24 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
     try {
       const data = await callHermes('conversations_list', { limit: 30 });
       setConversations(normalizeConversations(data));
+      try {
+        const ch = await callHermes('channels_list', {});
+        const chList = Array.isArray(ch) ? ch : ch?.channels ?? [];
+        setChannels(
+          (chList as { target?: string; platform?: string; name?: string; chat_type?: string }[])
+            .filter((c) => c.target)
+            .map((c) => ({
+              // A channel's session key follows the same shape the DM keys use.
+              session_key: `agent:main:${c.platform}:${c.chat_type ?? 'channel'}:${(c.target ?? '').split(':').pop()}`,
+              name: `# ${c.name ?? c.target}`,
+              platform: c.platform,
+              // Stash the ready-made send target where bind() can find it.
+              chat_name: c.target,
+            })),
+        );
+      } catch {
+        // Channels are optional garnish; conversations alone are fine.
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -161,11 +199,14 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
   const bind = (c: HermesConversation) => {
     const key = conversationKey(c);
     const name = conversationName(c);
+    // Channels arrive with a ready target in chat_name; conversations derive it.
+    const target = c.chat_name?.includes(':') ? c.chat_name : conversationTarget(c);
     setSelected(key);
     setSelectedName(name);
+    setSelectedTarget(target);
     setMessages([]);
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ key, name }));
+      localStorage.setItem(storageKey, JSON.stringify({ key, name, target }));
     } catch {
       // Storage full or unavailable; binding just won't survive a reload.
     }
@@ -191,7 +232,7 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
     // Optimistic echo so the widget feels instant.
     setMessages((prev) => [...prev, { role: 'user', text }]);
     try {
-      await callHermes('messages_send', { target: selected, message: text });
+      await callHermes('messages_send', { target: selectedTarget || selected, message: text });
       setTimeout(() => void refreshMessages(selected), 1200);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -212,7 +253,7 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
             <div className="text-white/40 italic">Looking for Hermes conversations…</div>
           )}
           {error && <div className="text-red-400/90 break-words">{error}</div>}
-          {conversations.map((c) => (
+          {[...conversations, ...channels].map((c) => (
             <button
               key={conversationKey(c)}
               onClick={() => bind(c)}

@@ -58,12 +58,21 @@ function pickAsset(assets: ReleaseAsset[]): ReleaseAsset | null {
 }
 
 async function fetchLatestRelease(): Promise<Release | null> {
+  // Deliberately NOT /releases/latest: right after publishing, that pointer can
+  // lag behind and hand back the previous version. Listing recent releases and
+  // choosing the highest tag that actually has a usable asset is stable.
   try {
-    const res = await net.fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    const res = await net.fetch(`https://api.github.com/repos/${REPO}/releases?per_page=10`, {
       headers: { 'User-Agent': 'camille-self-update', Accept: 'application/vnd.github+json' },
     });
     if (!res.ok) return null;
-    return (await res.json()) as Release;
+    const releases = (await res.json()) as Release[];
+    let best: Release | null = null;
+    for (const r of releases) {
+      if (!r?.tag_name || !pickAsset(r.assets ?? [])) continue;
+      if (!best || isNewer(r.tag_name, best.tag_name)) best = r;
+    }
+    return best;
   } catch {
     return null;
   }
