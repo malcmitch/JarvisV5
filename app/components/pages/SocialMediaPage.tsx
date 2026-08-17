@@ -36,7 +36,7 @@ interface PendingReply {
 
 const PLATFORMS: Platform[] = [
   { id: 'instagram', label: 'Instagram', home: 'https://www.instagram.com/', accent: '#e1306c' },
-  { id: 'tiktok',    label: 'TikTok',    home: 'https://www.tiktok.com/',     accent: '#25f4ee' },
+  { id: 'x',    label: 'X',    home: 'https://x.com/',     accent: '#25f4ee' },
   { id: 'facebook',  label: 'Facebook',  home: 'https://www.facebook.com/',  accent: '#1877f2' },
   { id: 'youtube',   label: 'YouTube',   home: 'https://www.youtube.com/',   accent: '#ff0033' },
 ];
@@ -127,7 +127,7 @@ Output only the reply.`;
 
 const DEFAULT_ENABLED: Record<PlatformId, boolean> = {
   instagram: true,
-  tiktok: true,
+  x: true,
   facebook: false,
   youtube: false,
 };
@@ -682,7 +682,7 @@ export function SocialMediaPage({ onNavigateHome }: { onNavigateHome: () => void
   };
 
   const sendReply = async (item: PendingReply): Promise<{ ok: boolean; alreadyReplied?: boolean; error?: string }> => {
-    if (item.platform !== 'instagram' && item.platform !== 'tiktok') {
+    if (item.platform !== 'instagram' && item.platform !== 'x') {
       notify('Send Failed', `${item.platform} posting is not wired yet.`, 'error');
       return { ok: false };
     }
@@ -915,7 +915,7 @@ export function SocialMediaPage({ onNavigateHome }: { onNavigateHome: () => void
         setStatusLine('No comment nodes found — open comments panel');
         notify(
           'Comments Not Visible',
-          scrapeNotes.join(' · ') || 'Open the TikTok/Instagram comments panel on the video, then Start again.',
+          scrapeNotes.join(' · ') || 'Open the X/Instagram comments panel on the video, then Start again.',
           'warn',
           8000,
         );
@@ -963,7 +963,7 @@ export function SocialMediaPage({ onNavigateHome }: { onNavigateHome: () => void
     sfx('select', 0.4);
     const samples = [
       { platform: 'instagram' as const, author: 'alex_m', comment: 'This reel is insane 🔥 how did you film that?' },
-      { platform: 'tiktok' as const, author: 'maya.codes', comment: 'Wait teach me the transition please!!' },
+      { platform: 'x' as const, author: 'maya.codes', comment: 'Wait teach me the transition please!!' },
       { platform: 'youtube' as const, author: 'StudioNine', comment: 'Been waiting for this drop. Absolute cinema.' },
       { platform: 'facebook' as const, author: 'Jordan Lee', comment: 'Sharing this with the whole group chat 😂' },
     ];
@@ -1104,7 +1104,7 @@ export function SocialMediaPage({ onNavigateHome }: { onNavigateHome: () => void
                 ))}
               </div>
               <p className="font-mono text-[8px] text-white/25 mt-1.5 leading-relaxed">
-                Instagram + TikTok scrapers are live. Facebook / YouTube need a comments capture first.
+                Instagram + X scrapers are live. Facebook / YouTube need a comments capture first.
               </p>
             </div>
 

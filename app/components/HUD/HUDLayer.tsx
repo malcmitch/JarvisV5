@@ -9,6 +9,7 @@ import { SystemStatusWidget } from './widgets/SystemStatusWidget';
 import { NetworkGraphWidget } from './widgets/NetworkGraphWidget';
 import { MapWidget } from './widgets/MapWidget';
 import { ClockWidget } from './widgets/ClockWidget';
+import { HermesBotWidget } from './widgets/HermesBotWidget';
 import { SuitWidget } from './widgets/SuitWidget';
 import { MusicWidget } from './widgets/MusicWidget';
 import { TextWidget } from './widgets/TextWidget';
@@ -38,7 +39,7 @@ type WidgetType =
   | 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image'
   | 'terminal' | 'tv' | 'printer' | 'weather-home' | 'ha-device' | 'ha-toggle' | 'model-viewer'
   | 'agenda' | 'todo' | 'stocks' | 'headlines' | 'timer' | 'weather-radar' | 'camera-feed'
-  | 'transcript' | 'uptime' | 'orbit' | 'calculator';
+  | 'transcript' | 'uptime' | 'orbit' | 'calculator' | 'hermes-bot';
 
 interface ModuleData {
   id: string;
@@ -94,6 +95,7 @@ const WIDGET_META: Record<WidgetType, { title: string; width: number; height: nu
   uptime:       { title: 'HOST MONITOR',    width: 300, height: 220 },
   orbit:        { title: 'ORBITAL TRACKER', width: 340, height: 290 },
   calculator:   { title: 'COMPUTE',         width: 280, height: 380 },
+  'hermes-bot': { title: 'HERMES BOT',      width: 360, height: 340 },
 };
 
 // ── HUD layout persistence ───────────────────────────────────────────────────
@@ -464,6 +466,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
           embedContent={module.type === 'image' || module.type === 'model-viewer' || module.type === 'weather-radar' || module.type === 'camera-feed'}
         >
           {module.type === 'clock' && <ClockWidget />}
+          {module.type === 'hermes-bot' && <HermesBotWidget widgetId={module.id} />}
           {module.type === 'system' && <SystemStatusWidget />}
           {module.type === 'network' && <NetworkGraphWidget />}
           {module.type === 'map' && <MapWidget />}

@@ -3,7 +3,7 @@
  * Keep these self-contained — no imports, no TypeScript.
  */
 
-export type SocialPlatformId = 'instagram' | 'tiktok' | 'facebook' | 'youtube';
+export type SocialPlatformId = 'instagram' | 'x' | 'facebook' | 'youtube';
 
 export interface ScrapedComment {
   author: string;
@@ -139,7 +139,7 @@ export const INSTAGRAM_SCRAPE = `(() => {
   }
 })()`;
 
-/** Scrape visible TikTok comments; skip threads where the creator already replied. */
+/** Scrape visible X comments; skip threads where the creator already replied. */
 export const TIKTOK_SCRAPE = `(async () => {
   ${PARSE_AGE_HELPER}
   try {
@@ -237,13 +237,13 @@ export const TIKTOK_SCRAPE = `(async () => {
 
     comments.sort((a, b) => a.ageSeconds - b.ageSeconds);
     return {
-      platform: 'tiktok',
+      platform: 'x',
       creator,
       comments: comments.slice(0, 40),
       debug: { rawFound: seenLocal.size, skippedOwn, skippedReplied, strategy },
     };
   } catch (err) {
-    return { platform: 'tiktok', creator: null, comments: [], error: String(err?.message || err) };
+    return { platform: 'x', creator: null, comments: [], error: String(err?.message || err) };
   }
 })()`;
 
@@ -259,7 +259,7 @@ export const YOUTUBE_SCRAPE = `(() => ({
 
 export const SCRAPE_SCRIPTS: Record<SocialPlatformId, string> = {
   instagram: INSTAGRAM_SCRAPE,
-  tiktok: TIKTOK_SCRAPE,
+  x: TIKTOK_SCRAPE,
   facebook: FACEBOOK_SCRAPE,
   youtube: YOUTUBE_SCRAPE,
 };
@@ -282,7 +282,7 @@ const SCROLL_HELPER = `
   }
 `;
 
-/** Scroll the TikTok comments panel to trigger lazy-load of more comments. */
+/** Scroll the X comments panel to trigger lazy-load of more comments. */
 export const TIKTOK_SCROLL_MORE = `(async () => {
   ${SCROLL_HELPER}
   try {
@@ -358,7 +358,7 @@ export const INSTAGRAM_SCROLL_MORE = `(async () => {
 
 export const SCROLL_MORE_SCRIPTS: Record<SocialPlatformId, string | null> = {
   instagram: INSTAGRAM_SCROLL_MORE,
-  tiktok: TIKTOK_SCROLL_MORE,
+  x: TIKTOK_SCROLL_MORE,
   facebook: null,
   youtube: null,
 };
@@ -420,8 +420,8 @@ export function instagramPostScript(author: string, commentText: string, reply: 
   })()`;
 }
 
-/** Click Reply on a matching TikTok comment, fill Draft.js editor, press Post. */
-export function tiktokPostScript(author: string, commentText: string, reply: string): string {
+/** Click Reply on a matching X comment, fill Draft.js editor, press Post. */
+export function xPostScript(author: string, commentText: string, reply: string): string {
   return `(async () => {
     const author = ${escapeForJsString(author)};
     const commentText = ${escapeForJsString(commentText)};
@@ -507,7 +507,7 @@ export function tiktokPostScript(author: string, commentText: string, reply: str
       await sleep(500);
     }
 
-    // Focus the comment input shell first (TikTok mounts Draft.js here)
+    // Focus the comment input shell first (X mounts Draft.js here)
     document.querySelector('[data-e2e="comment-input"]')?.click();
     await sleep(150);
 
@@ -520,14 +520,14 @@ export function tiktokPostScript(author: string, commentText: string, reply: str
     if (!filled) {
       return {
         success: false,
-        error: 'Could not type into TikTok composer (Draft.js ignored the text). Click the comment box once, then try Send again.',
+        error: 'Could not type into X composer (Draft.js ignored the text). Click the comment box once, then try Send again.',
       };
     }
 
     const postBtn = document.querySelector('[data-e2e="comment-post"]');
     if (!postBtn) return { success: false, error: 'Post button not found' };
 
-    // Wait for TikTok to enable Post after Draft state updates
+    // Wait for X to enable Post after Draft state updates
     for (let i = 0; i < 12; i++) {
       if (!postDisabled(postBtn)) break;
       await sleep(100);
@@ -536,7 +536,7 @@ export function tiktokPostScript(author: string, commentText: string, reply: str
     if (postDisabled(postBtn)) {
       return {
         success: false,
-        error: 'TikTok Post is still disabled — the site did not accept the typed reply. Click the comment box, then Send again.',
+        error: 'X Post is still disabled — the site did not accept the typed reply. Click the comment box, then Send again.',
       };
     }
 
@@ -553,6 +553,6 @@ export function postScript(
   reply: string,
 ): string | null {
   if (platform === 'instagram') return instagramPostScript(author, commentText, reply);
-  if (platform === 'tiktok') return tiktokPostScript(author, commentText, reply);
+  if (platform === 'x') return xPostScript(author, commentText, reply);
   return null;
 }

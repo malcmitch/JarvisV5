@@ -1,6 +1,6 @@
 import { BrowserWindow, WebContentsView, session } from 'electron';
 
-export type SocialPlatformId = 'instagram' | 'tiktok' | 'facebook' | 'youtube';
+export type SocialPlatformId = 'instagram' | 'x' | 'facebook' | 'youtube';
 
 export interface SocialBounds {
   x: number;
@@ -11,15 +11,15 @@ export interface SocialBounds {
 
 const HOME_URL: Record<SocialPlatformId, string> = {
   instagram: 'https://www.instagram.com/',
-  tiktok: 'https://www.tiktok.com/',
+  x: 'https://x.com/',
   facebook: 'https://www.facebook.com/',
   youtube: 'https://www.youtube.com/',
 };
 
-const PLATFORMS: SocialPlatformId[] = ['instagram', 'tiktok', 'facebook', 'youtube'];
+const PLATFORMS: SocialPlatformId[] = ['instagram', 'x', 'facebook', 'youtube'];
 
 /**
- * Embeds four Chromium panes (Instagram / TikTok / Facebook / YouTube) as
+ * Embeds four Chromium panes (Instagram / X / Facebook / YouTube) as
  * WebContentsViews on top of the main window. Bounds are driven by the
  * renderer so they line up with the Social Command placeholders.
  */
@@ -188,7 +188,7 @@ export class SocialViewsService {
 
   /**
    * Post a reply using native Chromium text insertion.
-   * Draft.js (TikTok) ignores most synthetic DOM input events; insertText works.
+   * Draft.js (X) ignores most synthetic DOM input events; insertText works.
    * Never type character-by-character — Draft.js caret races produce gibberish.
    */
   async postReply(
@@ -251,7 +251,7 @@ export class SocialViewsService {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const norm = (s) => String(s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
 
-        if (${JSON.stringify(id)} === 'tiktok') {
+        if (${JSON.stringify(id)} === 'x') {
           const creator = ((location.pathname.match(/\\/@([^/]+)/) || [])[1] || '').toLowerCase();
           const items = Array.from(document.querySelectorAll('[class*="DivCommentItemContainer"]'));
           let target = null;
@@ -298,7 +298,7 @@ export class SocialViewsService {
           if (!editor) return { ok: false, error: 'Comment editor not found — open comments first' };
           editor.focus();
           editor.click();
-          return { ok: true, platform: 'tiktok' };
+          return { ok: true, platform: 'x' };
         }
 
         if (${JSON.stringify(id)} === 'instagram') {
@@ -367,7 +367,7 @@ export class SocialViewsService {
         };
       }
 
-      // Drop a leading @mention TikTok may keep if the reply itself doesn't start with @
+      // Drop a leading @mention X may keep if the reply itself doesn't start with @
       if (typed.startsWith('@') && !reply.trim().startsWith('@') && norm(typed).includes(norm(reply))) {
         // still OK — Post with mention+reply is fine
       }
@@ -377,7 +377,7 @@ export class SocialViewsService {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const disabled = (btn) => !btn || btn.hasAttribute('disabled') || btn.getAttribute('aria-disabled') === 'true' || btn.disabled === true;
 
-        if (${JSON.stringify(id)} === 'tiktok') {
+        if (${JSON.stringify(id)} === 'x') {
           const postBtn = document.querySelector('[data-e2e="comment-post"]');
           if (!postBtn) return { ok: false, error: 'Post button not found' };
           for (let i = 0; i < 20; i++) {
@@ -385,7 +385,7 @@ export class SocialViewsService {
             await sleep(100);
           }
           if (disabled(postBtn)) {
-            return { ok: false, error: 'TikTok Post stayed disabled after native typing. Make sure comments are open and try Send again.' };
+            return { ok: false, error: 'X Post stayed disabled after native typing. Make sure comments are open and try Send again.' };
           }
           postBtn.click();
           await sleep(700);

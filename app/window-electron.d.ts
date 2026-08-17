@@ -91,16 +91,16 @@ declare global {
       setWindowOpaque?: (opaque: boolean) => Promise<{ success: boolean; opaque?: boolean; error?: string }>;
       socialStart?: () => Promise<{ success: boolean; error?: string }>;
       socialStop?: () => Promise<{ success: boolean }>;
-      socialSetBounds?: (all: Partial<Record<'instagram' | 'tiktok' | 'facebook' | 'youtube', { x: number; y: number; width: number; height: number }>>) => Promise<{ success: boolean }>;
-      socialNavigate?: (id: 'instagram' | 'tiktok' | 'facebook' | 'youtube', url: string) => Promise<{ success: boolean; error?: string }>;
+      socialSetBounds?: (all: Partial<Record<'instagram' | 'x' | 'facebook' | 'youtube', { x: number; y: number; width: number; height: number }>>) => Promise<{ success: boolean }>;
+      socialNavigate?: (id: 'instagram' | 'x' | 'facebook' | 'youtube', url: string) => Promise<{ success: boolean; error?: string }>;
       socialNavigateAll?: (url: string) => Promise<{ success: boolean }>;
-      socialReload?: (id: 'instagram' | 'tiktok' | 'facebook' | 'youtube') => Promise<{ success: boolean }>;
-      socialHome?: (id: 'instagram' | 'tiktok' | 'facebook' | 'youtube') => Promise<{ success: boolean }>;
-      socialGetUrl?: (id: 'instagram' | 'tiktok' | 'facebook' | 'youtube') => Promise<{ success: boolean; url?: string }>;
-      socialCaptureHtml?: (id: 'instagram' | 'tiktok' | 'facebook' | 'youtube') => Promise<{ success: boolean; html?: string; url?: string; title?: string; error?: string }>;
-      socialExec?: (id: 'instagram' | 'tiktok' | 'facebook' | 'youtube', code: string) => Promise<{ success: boolean; result?: unknown; error?: string }>;
+      socialReload?: (id: 'instagram' | 'x' | 'facebook' | 'youtube') => Promise<{ success: boolean }>;
+      socialHome?: (id: 'instagram' | 'x' | 'facebook' | 'youtube') => Promise<{ success: boolean }>;
+      socialGetUrl?: (id: 'instagram' | 'x' | 'facebook' | 'youtube') => Promise<{ success: boolean; url?: string }>;
+      socialCaptureHtml?: (id: 'instagram' | 'x' | 'facebook' | 'youtube') => Promise<{ success: boolean; html?: string; url?: string; title?: string; error?: string }>;
+      socialExec?: (id: 'instagram' | 'x' | 'facebook' | 'youtube', code: string) => Promise<{ success: boolean; result?: unknown; error?: string }>;
       socialPostReply?: (
-        id: 'instagram' | 'tiktok' | 'facebook' | 'youtube',
+        id: 'instagram' | 'x' | 'facebook' | 'youtube',
         author: string,
         commentText: string,
         reply: string,

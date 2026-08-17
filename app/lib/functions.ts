@@ -783,7 +783,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         "'agenda' (upcoming calendar events), 'todo' (today's task list), 'stocks' (market ticker), 'headlines' (rotating news), " +
         "'timer' (countdowns and reminders), 'weather-radar' (animated precipitation map), 'camera-feed' (live webcam), " +
         "'transcript' (conversation log), 'uptime' (host reachability monitor), 'orbit' (ISS tracker + sun/moon), " +
-        "'calculator' (futuristic compute / arithmetic pad). " +
+        "'calculator' (futuristic compute / arithmetic pad), 'hermes-bot' (live window into a Hermes agent conversation — the user binds it to a bot and can chat with it). " +
         "IMPORTANT: The 'map' widget here is a small HUD minimap overlay — it is NOT the full Camille Map page. " +
         "If the user asks to 'open the map', 'go to the map page', 'show the map', 'navigate on a map', or wants to fly to a location/draw a route, use map_command instead. " +
         "When opening the 'text' widget, optionally supply text_content and title. " +
@@ -800,7 +800,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
             type: 'string',
             enum: [
               'clock', 'system', 'network', 'map', 'suit', 'music', 'text', 'pdf', 'image', 'terminal',
-              'agenda', 'todo', 'stocks', 'headlines', 'timer', 'weather-radar', 'camera-feed', 'transcript', 'uptime', 'orbit', 'calculator',
+              'agenda', 'todo', 'stocks', 'headlines', 'timer', 'weather-radar', 'camera-feed', 'transcript', 'uptime', 'orbit', 'calculator', 'hermes-bot',
             ],
             description: "The widget to open or close. Required for 'open' and 'close' commands. Ignored for 'clear' and 'reset'. Use 'terminal' to show the error terminal.",
           },
@@ -2057,7 +2057,7 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
             type: 'string',
             enum: [
               'tv', 'printer', 'weather-home', 'weather-radar', 'agenda', 'todo', 'stocks', 'headlines',
-              'timer', 'camera-feed', 'transcript', 'uptime', 'orbit', 'calculator', 'ha-device', 'ha-toggle',
+              'timer', 'camera-feed', 'transcript', 'uptime', 'orbit', 'calculator', 'ha-device', 'ha-toggle', 'hermes-bot',
             ],
             description: 'Which widget to add or remove. Use "ha-toggle" for a single glowing power button for one specific device.',
           },
