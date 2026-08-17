@@ -3,6 +3,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: false,
   output: "standalone",
+  // Anchor the trace root to this project. Without it, Next walks up looking
+  // for a workspace root; a stray ~/node_modules on the build machine made it
+  // pick $HOME, which nests standalone output as standalone/JarvisV5/ and the
+  // packaged app then can't find server.js at the expected top level.
+  outputFileTracingRoot: __dirname,
   serverExternalPackages: ["@jitsi/robotjs", "screenshot-desktop"],
   images: {
     // Every image is a local asset shipped at its final size, so runtime
