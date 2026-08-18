@@ -156,6 +156,8 @@ export interface JarvisSettings {
   initialPrompt: string;
   enabledFunctions: string[];
   wakeWordEnabled?: boolean;
+  /** Route every capable task through Hermes instead of waiting to be asked. */
+  hermesRouting?: boolean;
   wakeWordSensitivity?: number;  // 0.0 to 1.0, default 0.5
   theme: JarvisTheme;
   grid: JarvisGrid;
@@ -358,6 +360,34 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
           {/* Camille Tab */}
           {activeTab === 'jarvis' && (
             <>
+              {/* Hermes Routing */}
+              <div className="space-y-3 pt-2 border-t border-cyan-500/10">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Hermes Routing</label>
+                  <button
+                    onClick={() => {
+                      const next = !settings.hermesRouting;
+                      sfx('switch_interface', 0.5, 2);
+                      setSettings({ ...settings, hermesRouting: next });
+                    }}
+                    className={`relative w-10 h-5 rounded-full transition-all ${
+                      settings.hermesRouting ? 'bg-cyan-500' : 'bg-cyan-900/50 border border-cyan-500/30'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-all ${
+                        settings.hermesRouting ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <p className="text-[10px] text-cyan-700 leading-tight">
+                  On: anything needing a terminal, files, the browser or desktop control goes to
+                  Hermes automatically. Off: Camille uses her own tools and only delegates when you
+                  say &quot;ask Hermes&quot;.
+                </p>
+              </div>
+
               {/* Wake Word Configuration */}
               <div className="space-y-3 pt-2 border-t border-cyan-500/10">
                 <div className="flex items-center justify-between">

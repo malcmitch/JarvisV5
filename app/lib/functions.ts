@@ -2628,6 +2628,43 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
     },
   },
   {
+    name: 'set_hermes_routing',
+    label: 'Hermes Routing',
+    description: 'Let Camille hand every capable task to Hermes without being asked each time',
+    tool: {
+      type: 'function',
+      name: 'set_hermes_routing',
+      description:
+        'Turn Hermes routing on or off. When ON, Camille sends anything needing a terminal, files, the browser, ' +
+        'desktop control or system information to Hermes automatically, without the user naming Hermes. ' +
+        'When OFF, Camille uses her own tools and only delegates when explicitly asked. ' +
+        'Use when the user says "route everything through Hermes", "stop using Hermes for everything", ' +
+        '"let Hermes handle things", or similar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          enabled: {
+            type: 'boolean',
+            description: 'True to route capable tasks through Hermes automatically, false to stop.',
+          },
+        },
+        required: ['enabled'],
+      },
+    },
+    handler: (args) => {
+      const enabled = args.enabled === true;
+      window.dispatchEvent(
+        new CustomEvent('jarvis:set-hermes-routing', { detail: { enabled } }),
+      );
+      return {
+        success: true,
+        message: enabled
+          ? 'Hermes routing on. Tasks needing a terminal, files, the browser or desktop control now go to Hermes automatically.'
+          : 'Hermes routing off. Back to my own tools unless you ask for Hermes.',
+      };
+    },
+  },
+  {
     name: 'set_theme',
     label: 'Theme Control',
     description: 'Let Camille switch the interface color theme by voice',

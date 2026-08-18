@@ -70,11 +70,12 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   voice: 'shimmer',
   initialPrompt: 'You are Camille, a helpful AI assistant. You are always helpful, polite, and concise. A woman with a calm, composed voice and a subtle French lilt. Emotionally controlled. Effortlessly witty and a little bit poking fun at the user.',
   enabledFunctions: [
-    'hermes_command',
+    'hermes_command', 'set_hermes_routing',
     'desktop_mode', 'navigate_to_page', 'jarvis_disconnect',
     'lock_interface', 'set_timer', 'set_reminder', 'hud_layout', 'briefing', 'set_theme', 'ambient_mode',
   ],
   wakeWordEnabled: false,
+  hermesRouting: false,
   wakeWordSensitivity: 0.5,
   theme: 'arc-reactor',
   grid: 'off',
@@ -248,6 +249,28 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  /**
+   * Keeps the live session's routing behaviour in step with the toggle.
+   *
+   * Tool descriptions are fixed in the ElevenLabs agent config, so the lever
+   * available at runtime is a contextual update. Re-sent on every status change
+   * to 'active' as well as on toggle, because these updates are per-session and
+   * don't survive a reconnect.
+   */
+  useEffect(() => {
+    if (status !== 'active') return;
+    if (elConversation.status !== 'connected') return;
+
+    const instruction = settings.hermesRouting
+      ? 'Routing mode is ON. For any request needing a terminal, the filesystem, the browser, desktop control, code, or system information, call hermes_command — even if the user does not mention Hermes. Do not say you are unable to do these things; delegate instead. Keep using your own tools for timers, HUD control, navigation and memory.'
+      : 'Routing mode is OFF. Use your own tools, and only call hermes_command when the user explicitly asks you to involve Hermes.';
+
+    Promise.resolve(elConversation.sendContextualUpdate(instruction)).catch(() => {
+      // A dropped contextual update only affects routing preference, never
+      // the conversation itself; the next status change re-sends it.
+    });
+  }, [settings.hermesRouting, status, elConversation]);
 
   useEffect(() => {
     needsFftRef.current = settings.visualizer !== 'frequency-ring';
@@ -622,6 +645,23 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     window.addEventListener('jarvis:announce', handler);
     return () => window.removeEventListener('jarvis:announce', handler);
   }, [elConversation]);
+
+  // Hermes routing by voice (set_hermes_routing tool). Persisted like any
+  // settings save so the choice survives a restart; the effect above pushes
+  // the matching instruction into the live session.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const enabled = (e as CustomEvent<{ enabled?: boolean }>).detail?.enabled;
+      if (typeof enabled !== 'boolean') return;
+      setSettings((prev) => {
+        const updated = { ...prev, hermesRouting: enabled };
+        localStorage.setItem('jarvis_settings', JSON.stringify(updated));
+        return updated;
+      });
+    };
+    window.addEventListener('jarvis:set-hermes-routing', handler);
+    return () => window.removeEventListener('jarvis:set-hermes-routing', handler);
+  }, []);
 
   // Theme change by voice (set_theme tool) — persist like a settings save
   useEffect(() => {
