@@ -58,8 +58,8 @@ export async function loadHermesApiKey(opts?: { fresh?: boolean }): Promise<stri
 export interface HermesProfileInfo {
   /** Directory name under ~/.hermes/profiles. */
   name: string;
-  /** api_server.port from the profile's config.yaml. */
-  port: number;
+  /** api_server.port from config.yaml, or null when it has no API server yet. */
+  port: number | null;
   /** Whether an API_SERVER_KEY was found for this profile. */
   hasKey: boolean;
 }
@@ -95,12 +95,15 @@ export function parseApiServerPort(configYaml: string): number | null {
 
 const profilesRoot = () => path.join(os.homedir(), '.hermes', 'profiles');
 
-/** Reads one profile's port and key. Returns null if it has no api_server port. */
+/**
+ * Reads one profile's port and key. Returns null only when the profile itself
+ * doesn't exist — a profile with no api_server block still comes back, with a
+ * null port, so the UI can offer to enable it rather than hiding it.
+ */
 export async function readHermesProfile(name: string): Promise<HermesProfileInfo | null> {
   try {
     const configText = await readFile(path.join(profilesRoot(), name, 'config.yaml'), 'utf8');
     const port = parseApiServerPort(configText);
-    if (!port) return null;
     let hasKey = false;
     try {
       const envText = await readFile(path.join(profilesRoot(), name, '.env'), 'utf8');
@@ -144,7 +147,8 @@ export async function resolveHermesTarget(
   }
 
   const info = await readHermesProfile(profile);
-  if (!info) throw new Error(`Hermes profile "${profile}" was not found or has no API server port.`);
+  if (!info) throw new Error(`Hermes profile "${profile}" was not found.`);
+  if (!info.port) throw new Error(`Hermes profile "${profile}" has no API server port configured.`);
 
   let apiKey = '';
   try {

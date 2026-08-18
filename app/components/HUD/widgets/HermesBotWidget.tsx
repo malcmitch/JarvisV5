@@ -21,7 +21,7 @@ import { streamHermesChat } from '../../../lib/hermes-stream';
 
 interface HermesProfileInfo {
   name: string;
-  port: number;
+  port: number | null;
   hasKey: boolean;
   online: boolean;
   reason: string | null;
@@ -42,6 +42,19 @@ interface HermesMessage {
 
 async function apiGet<T>(url: string): Promise<T> {
   const res = await fetch(url);
+  const body = await res.json();
+  if (!res.ok || body?.error) {
+    throw new Error(body?.error ?? `Request failed (${res.status})`);
+  }
+  return body as T;
+}
+
+async function apiPost<T>(url: string, payload?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload ?? {}),
+  });
   const body = await res.json();
   if (!res.ok || body?.error) {
     throw new Error(body?.error ?? `Request failed (${res.status})`);
@@ -115,6 +128,9 @@ const POLL_MS = 4000;
 export function HermesBotWidget({ widgetId }: { widgetId: string }) {
   const storageKey = `camille_hermes_bot_${widgetId}`;
   const [profiles, setProfiles] = useState<HermesProfileInfo[]>([]);
+  const [busyProfile, setBusyProfile] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newProfileName, setNewProfileName] = useState('');
   const [profile, setProfile] = useState<string | null>(null);
   const [sessions, setSessions] = useState<HermesSessionSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -155,6 +171,62 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
+
+  /**
+   * Starting a profile also exposes its API server if it never had one, so an
+   * untouched profile becomes usable in one click. Gateways take a few seconds
+   * to bind their port, hence the poll rather than a single re-check.
+   */
+  const startProfile = useCallback(async (name: string) => {
+    setBusyProfile(name);
+    setError(null);
+    try {
+      await apiPost(`/api/hermes/profiles/${encodeURIComponent(name)}/gateway`, { action: 'start' });
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const data = await apiGet<{ profiles: HermesProfileInfo[] }>('/api/hermes/profiles');
+        setProfiles(data.profiles ?? []);
+        if (data.profiles?.find((p) => p.name === name)?.online) break;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyProfile(null);
+    }
+  }, []);
+
+  const stopProfile = useCallback(async (name: string) => {
+    setBusyProfile(name);
+    setError(null);
+    try {
+      await apiPost(`/api/hermes/profiles/${encodeURIComponent(name)}/gateway`, { action: 'stop' });
+      await new Promise((r) => setTimeout(r, 1500));
+      const data = await apiGet<{ profiles: HermesProfileInfo[] }>('/api/hermes/profiles');
+      setProfiles(data.profiles ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyProfile(null);
+    }
+  }, []);
+
+  const createProfile = useCallback(async () => {
+    const name = newProfileName.trim().toLowerCase();
+    if (!name) return;
+    setBusyProfile(name);
+    setError(null);
+    try {
+      await apiPost('/api/hermes/profiles', { name, cloneFrom: 'camille' });
+      setNewProfileName('');
+      setCreating(false);
+      const data = await apiGet<{ profiles: HermesProfileInfo[] }>('/api/hermes/profiles');
+      setProfiles(data.profiles ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyProfile(null);
+    }
+  }, [newProfileName]);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -317,30 +389,72 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
           )}
           {error && <div className="text-red-400/90 break-words">{error}</div>}
           {profiles.map((p) => (
-            <button
+            <div
               key={p.name}
-              onClick={() => setProfile(p.name)}
-              disabled={!p.online}
-              className="w-full text-left px-2 py-1.5 rounded border border-white/10 enabled:hover:border-cyan-400/60 enabled:hover:bg-cyan-400/10 disabled:opacity-40 transition-colors"
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded border border-white/10"
             >
-              <span className="flex items-center gap-1.5">
-                <span
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.online ? 'bg-emerald-400' : 'bg-white/25'}`}
-                />
-                <span className={p.online ? 'text-cyan-300' : 'text-white/50'}>{p.name}</span>
-                <span className="text-white/25 ml-auto text-[10px]">
-                  {p.online ? `:${p.port}` : (p.reason ?? 'offline')}
-                </span>
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.online ? 'bg-emerald-400' : 'bg-white/25'}`}
+              />
+              <button
+                onClick={() => p.online && setProfile(p.name)}
+                disabled={!p.online}
+                className="text-left truncate enabled:text-cyan-300 enabled:hover:underline disabled:text-white/45"
+              >
+                {p.name}
+              </button>
+              <span className="text-white/25 ml-auto text-[10px] shrink-0">
+                {busyProfile === p.name ? 'working…' : p.online ? `:${p.port}` : (p.reason ?? 'stopped')}
               </span>
-            </button>
+              <button
+                onClick={() => void (p.online ? stopProfile(p.name) : startProfile(p.name))}
+                disabled={busyProfile !== null}
+                className={`text-[10px] uppercase tracking-wider shrink-0 disabled:opacity-30 ${
+                  p.online ? 'text-white/30 hover:text-red-300' : 'text-emerald-300/70 hover:text-emerald-300'
+                }`}
+              >
+                {p.online ? 'stop' : 'start'}
+              </button>
+            </div>
           ))}
+
+          {creating && (
+            <div className="flex gap-1.5 pt-1">
+              <input
+                autoFocus
+                value={newProfileName}
+                onChange={(e) => setNewProfileName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void createProfile();
+                  if (e.key === 'Escape') setCreating(false);
+                }}
+                placeholder="new-profile-name"
+                className="flex-1 bg-white/5 border border-white/10 focus:border-cyan-400/60 rounded px-2 py-1 outline-none text-white/90 placeholder:text-white/25"
+              />
+              <button
+                onClick={() => void createProfile()}
+                disabled={!newProfileName.trim() || busyProfile !== null}
+                className="px-2 rounded border border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-30 uppercase tracking-wider text-[10px]"
+              >
+                create
+              </button>
+            </div>
+          )}
         </div>
-        <button
-          onClick={() => void loadProfiles()}
-          className="mt-2 text-[10px] uppercase tracking-wider text-white/40 hover:text-cyan-300 self-start"
-        >
-          ↻ refresh
-        </button>
+        <div className="mt-2 flex items-center gap-3">
+          <button
+            onClick={() => void loadProfiles()}
+            className="text-[10px] uppercase tracking-wider text-white/40 hover:text-cyan-300"
+          >
+            ↻ refresh
+          </button>
+          <button
+            onClick={() => setCreating((v) => !v)}
+            className="text-[10px] uppercase tracking-wider text-white/40 hover:text-cyan-300"
+          >
+            {creating ? 'cancel' : '+ new profile'}
+          </button>
+        </div>
       </div>
     );
   }
