@@ -214,10 +214,16 @@ export function HUDModule({
         // Small timeout to prevent click from firing immediately after drag
         setTimeout(() => { isDraggingRef.current = false; }, 100);
       }}
-      onClick={() => {
-        if (!isDraggingRef.current && !isExpanded && onToggleExpand) {
-          onToggleExpand(id);
+      onClick={(e) => {
+        if (isDraggingRef.current || isExpanded || !onToggleExpand) return;
+        // Clicks that land on a control belong to the widget, not to the
+        // window chrome: typing in a compact chat widget shouldn't force it
+        // open. Anything marked data-no-drag is interactive content too.
+        const target = e.target as HTMLElement | null;
+        if (target?.closest('input, textarea, select, button, a, [contenteditable="true"], [data-no-drag]')) {
+          return;
         }
+        onToggleExpand(id);
       }}
       className={cn(
         "absolute flex flex-col pointer-events-auto",

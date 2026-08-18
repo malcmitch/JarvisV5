@@ -14,9 +14,18 @@ import { streamHermesChat } from '../../../lib/hermes-stream';
  * X-Hermes-Session-Id header — so replies render token-by-token with live
  * tool status, and long agent runs can be cancelled mid-flight.
  *
- * Several instances can coexist, each bound to a different session, so
- * the dashboard can show a whole crew of local Hermes tasks at once.
+ * Several instances can coexist, each bound to a different session on a
+ * different Hermes profile, so the dashboard can show a whole crew of local
+ * agents at once.
  */
+
+interface HermesProfileInfo {
+  name: string;
+  port: number;
+  hasKey: boolean;
+  online: boolean;
+  reason: string | null;
+}
 
 interface HermesSessionSummary {
   id: string;
@@ -49,6 +58,35 @@ function isBot(m: HermesMessage): boolean {
 }
 
 /**
+ * Hermes stores tool calls and their results as their own messages in session
+ * history (role "tool" / "function" / "tool_result"). Rendering those as chat
+ * bubbles dumps raw JSON like {"output": "done", "exit_code": 0} into the
+ * transcript as if the user had typed it. They're activity, not conversation,
+ * so they get a compact status line instead.
+ */
+function isToolMessage(m: HermesMessage): boolean {
+  const role = m.role.toLowerCase();
+  return role.includes('tool') || role.includes('function');
+}
+
+/** One-line, non-JSON summary of a tool-result payload. */
+function toolSummary(content: string): string {
+  const text = content.trim();
+  if (!text) return 'tool result';
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const exit = parsed.exit_code;
+    const err = parsed.error;
+    if (typeof err === 'string' && err) return `tool error: ${err}`;
+    if (typeof exit === 'number') return exit === 0 ? 'tool ran successfully' : `tool exited ${exit}`;
+    return 'tool result received';
+  } catch {
+    // Not JSON — show a short prefix rather than a wall of output.
+    return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+  }
+}
+
+/**
  * Reasoning is collapsed by default — this widget is a compact HUD panel,
  * not a full transcript viewer, and raw thinking traces (which can run to
  * hundreds of words per turn) drown out the actual answer. Click to expand.
@@ -76,6 +114,8 @@ const POLL_MS = 4000;
 
 export function HermesBotWidget({ widgetId }: { widgetId: string }) {
   const storageKey = `camille_hermes_bot_${widgetId}`;
+  const [profiles, setProfiles] = useState<HermesProfileInfo[]>([]);
+  const [profile, setProfile] = useState<string | null>(null);
   const [sessions, setSessions] = useState<HermesSessionSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedName, setSelectedName] = useState<string>('');
@@ -90,12 +130,13 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
   const streamingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Restore this widget's bound session.
+  // Restore this widget's bound profile + session.
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? 'null') as
-        | { id: string; name: string }
+        | { id: string; name: string; profile?: string }
         | null;
+      if (saved?.profile) setProfile(saved.profile);
       if (saved?.id) {
         setSelected(saved.id);
         setSelectedName(saved.name ?? saved.id);
@@ -105,31 +146,47 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
     }
   }, [storageKey]);
 
-  const loadSessions = useCallback(async () => {
+  const loadProfiles = useCallback(async () => {
     try {
-      const data = await apiGet<{ sessions: HermesSessionSummary[] }>('/api/hermes/sessions');
-      setSessions(data.sessions ?? []);
+      const data = await apiGet<{ profiles: HermesProfileInfo[] }>('/api/hermes/profiles');
+      setProfiles(data.profiles ?? []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
+  const loadSessions = useCallback(async () => {
+    try {
+      const q = profile ? `?profile=${encodeURIComponent(profile)}` : '';
+      const data = await apiGet<{ sessions: HermesSessionSummary[] }>(`/api/hermes/sessions${q}`);
+      setSessions(data.sessions ?? []);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [profile]);
+
   useEffect(() => {
-    if (!selected) void loadSessions();
-  }, [selected, loadSessions]);
+    if (!profile) void loadProfiles();
+  }, [profile, loadProfiles]);
+
+  useEffect(() => {
+    if (profile && !selected) void loadSessions();
+  }, [profile, selected, loadSessions]);
 
   const refreshMessages = useCallback(async (id: string) => {
     try {
+      const q = profile ? `?profile=${encodeURIComponent(profile)}` : '';
       const data = await apiGet<{ messages: HermesMessage[] }>(
-        `/api/hermes/sessions/${encodeURIComponent(id)}/messages`,
+        `/api/hermes/sessions/${encodeURIComponent(id)}/messages${q}`,
       );
       setMessages(data.messages ?? []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [profile]);
 
   // Poll the transcript while bound.
   useEffect(() => {
@@ -155,10 +212,24 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
     setSelectedName(name);
     setMessages([]);
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ id: s.id, name }));
+      localStorage.setItem(storageKey, JSON.stringify({ id: s.id, name, profile }));
     } catch {
       // Storage full or unavailable; binding just won't survive a reload.
     }
+  };
+
+  const switchProfile = () => {
+    setSelected(null);
+    setSelectedName('');
+    setMessages([]);
+    setProfile(null);
+    setSessions([]);
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {
+      // Ignore.
+    }
+    void loadProfiles();
   };
 
   const unbind = () => {
@@ -188,9 +259,11 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
 
     let acc = '';
+    let failed = false;
     await streamHermesChat({
       prompt: text,
       sessionId: selected,
+      profile: profile ?? undefined,
       signal: controller.signal,
       onDelta: (t) => {
         acc += t;
@@ -212,6 +285,7 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
         if (code === 'cancelled') {
           if (acc) setMessages((prev) => [...prev, { role: 'assistant', content: acc + ' …[cancelled]' }]);
         } else {
+          failed = true;
           setError(message);
         }
       },
@@ -223,17 +297,68 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
     setStreamStatus([]);
     setSending(false);
     // Reconcile with Hermes's stored transcript (ids, reasoning, ordering).
-    void refreshMessages(selected);
+    // On failure, skip it: refreshMessages() clears `error` on success, which
+    // would wipe the message the user needs to read a beat after it appears.
+    if (!failed) void refreshMessages(selected);
   };
 
   const cancel = () => abortRef.current?.abort();
+
+  // ── Profile picker ──
+  if (!profile) {
+    return (
+      <div className="flex flex-col h-full text-xs">
+        <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">
+          Pick a Hermes profile
+        </div>
+        <div data-no-drag className="flex-1 overflow-y-auto space-y-1 pr-1">
+          {profiles.length === 0 && !error && (
+            <div className="text-white/40 italic">Looking for Hermes profiles…</div>
+          )}
+          {error && <div className="text-red-400/90 break-words">{error}</div>}
+          {profiles.map((p) => (
+            <button
+              key={p.name}
+              onClick={() => setProfile(p.name)}
+              disabled={!p.online}
+              className="w-full text-left px-2 py-1.5 rounded border border-white/10 enabled:hover:border-cyan-400/60 enabled:hover:bg-cyan-400/10 disabled:opacity-40 transition-colors"
+            >
+              <span className="flex items-center gap-1.5">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.online ? 'bg-emerald-400' : 'bg-white/25'}`}
+                />
+                <span className={p.online ? 'text-cyan-300' : 'text-white/50'}>{p.name}</span>
+                <span className="text-white/25 ml-auto text-[10px]">
+                  {p.online ? `:${p.port}` : (p.reason ?? 'offline')}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => void loadProfiles()}
+          className="mt-2 text-[10px] uppercase tracking-wider text-white/40 hover:text-cyan-300 self-start"
+        >
+          ↻ refresh
+        </button>
+      </div>
+    );
+  }
 
   // ── Session picker ──
   if (!selected) {
     return (
       <div className="flex flex-col h-full text-xs">
-        <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">
-          Bind this widget to a local Hermes session
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[10px] uppercase tracking-widest text-white/40">
+            Session on <span className="text-cyan-300/80">{profile}</span>
+          </div>
+          <button
+            onClick={switchProfile}
+            className="text-[10px] uppercase tracking-wider text-white/30 hover:text-white/70"
+          >
+            profile
+          </button>
         </div>
         <div data-no-drag className="flex-1 overflow-y-auto space-y-1 pr-1">
           {sessions.length === 0 && !error && (
@@ -268,6 +393,7 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
           <span className="text-cyan-300 truncate">{selectedName}</span>
+          <span className="text-white/25 text-[10px] shrink-0">{profile}</span>
         </div>
         <button
           onClick={unbind}
@@ -281,7 +407,16 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
         {messages.length === 0 && !error && (
           <div className="text-white/40 italic">No messages yet — say something below.</div>
         )}
-        {messages.map((m, i) => (
+        {messages.map((m, i) =>
+          isToolMessage(m) ? (
+            <div
+              key={i}
+              className="text-[10px] uppercase tracking-wider text-amber-300/60 pl-1"
+              title={m.content}
+            >
+              ▸ {toolSummary(m.content)}
+            </div>
+          ) : (
           <div key={i} className={isBot(m) ? '' : 'ml-auto max-w-[92%]'}>
             {isBot(m) && m.reasoning && <ReasoningDisclosure text={m.reasoning} />}
             {m.content && (
@@ -296,7 +431,8 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
               </div>
             )}
           </div>
-        ))}
+          ),
+        )}
         {sending && (
           <div>
             {streamStatus.length > 0 && (
@@ -346,4 +482,3 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
     </div>
   );
 }
-

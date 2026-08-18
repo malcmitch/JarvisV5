@@ -27,7 +27,7 @@ test('GET lists local Hermes sessions using the camille profile key', async () =
   };
 
   try {
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/api/hermes/sessions'));
 
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {

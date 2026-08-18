@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server.js';
 
-import { HERMES_GATEWAY_URL, loadHermesApiKey } from '../../../lib/hermes-config.ts';
+import { resolveHermesTarget } from '../../../lib/hermes-config.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,10 +21,12 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   let prompt = '';
   let sessionId = '';
+  let profile: string | null = null;
   try {
-    const body = (await req.json()) as { prompt?: unknown; sessionId?: unknown };
+    const body = (await req.json()) as { prompt?: unknown; sessionId?: unknown; profile?: unknown };
     prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
     sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+    profile = typeof body.profile === 'string' && body.profile.trim() ? body.profile.trim() : null;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
@@ -35,17 +37,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Session id is required.' }, { status: 400 });
   }
 
-  const apiKey = await loadHermesApiKey();
-  if (!apiKey) {
+  let baseUrl: string;
+  let apiKey: string;
+  try {
+    ({ baseUrl, apiKey } = await resolveHermesTarget(profile));
+  } catch (err) {
     return NextResponse.json(
-      { error: 'Hermes API Server is not configured. Run Hermes gateway setup first.' },
+      { error: err instanceof Error ? err.message : 'Hermes API Server is not configured.' },
       { status: 503 },
     );
   }
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${HERMES_GATEWAY_URL}/v1/chat/completions`, {
+    upstream = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,

@@ -272,3 +272,30 @@ test('streamHermesChat reports abort as cancelled', async () => {
 
   assert.equal(c.error?.code, 'cancelled');
 });
+
+test('streamHermesChat forwards the profile when one is selected', async () => {
+  const { c, callbacks } = collect();
+  let seenBody: Record<string, unknown> = {};
+  const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return streamResponseFrom(contentChunk('ok') + 'data: [DONE]\n\n');
+  }) as typeof fetch;
+
+  await streamHermesChat({ prompt: 'hi', sessionId: 's', profile: 'rapid', fetchImpl, ...callbacks });
+
+  assert.equal(seenBody.profile, 'rapid');
+  assert.equal(c.done?.full, 'ok');
+});
+
+test('streamHermesChat omits profile entirely when none is selected', async () => {
+  const { callbacks } = collect();
+  let seenBody: Record<string, unknown> = {};
+  const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return streamResponseFrom('data: [DONE]\n\n');
+  }) as typeof fetch;
+
+  await streamHermesChat({ prompt: 'hi', sessionId: 's', fetchImpl, ...callbacks });
+
+  assert.ok(!('profile' in seenBody), 'default profile must not be sent explicitly');
+});

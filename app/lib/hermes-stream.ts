@@ -173,6 +173,8 @@ export interface StreamHermesChatOptions extends HermesStreamCallbacks {
   prompt: string;
   /** Hermes session to bind this exchange to (X-Hermes-Session-Id). */
   sessionId: string;
+  /** Hermes profile to route to. Omit for the default (camille) profile. */
+  profile?: string;
   /** Wire to a cancel button; aborting resolves via onError('cancelled'). */
   signal?: AbortSignal;
   /** Test injection. */
@@ -195,7 +197,11 @@ export async function streamHermesChat(options: StreamHermesChatOptions): Promis
     response = await fetchImpl(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: options.prompt, sessionId: options.sessionId }),
+      body: JSON.stringify({
+        prompt: options.prompt,
+        sessionId: options.sessionId,
+        ...(options.profile ? { profile: options.profile } : {}),
+      }),
       signal: options.signal,
     });
   } catch (err) {

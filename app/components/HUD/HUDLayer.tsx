@@ -333,7 +333,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
         const newModuleId =
           type === 'image' && module_id?.trim() ? module_id.trim() : String(Date.now());
         setModules(prev => {
-          const multiInstance = ['text', 'pdf', 'image', 'printer', 'ha-device', 'ha-toggle', 'stocks', 'uptime'].includes(type);
+          const multiInstance = ['text', 'pdf', 'image', 'printer', 'ha-device', 'ha-toggle', 'stocks', 'uptime', 'hermes-bot'].includes(type);
           if (!multiInstance && prev.some(m => m.type === type)) return prev;
           const meta = WIDGET_META[type];
           const { x: newX, y: newY } = findOpenSpot(meta.width, meta.height, prev);
