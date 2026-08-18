@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -127,6 +127,97 @@ export async function profileExists(name: string): Promise<boolean> {
   }
 }
 
+/**
+ * Every platform adapter Hermes ships. Adapters auto-enable when their
+ * credentials are present in a profile's .env, so a profile with a Telegram
+ * token boots a Telegram client whether or not config.yaml mentions it.
+ * Read from disk when possible so a Hermes update that adds an adapter is
+ * picked up automatically; the literal list is the fallback.
+ */
+const KNOWN_PLATFORMS = [
+  'a2a', 'buzz', 'dingtalk', 'discord', 'email', 'feishu', 'google_chat',
+  'homeassistant', 'irc', 'line', 'matrix', 'mattermost', 'ntfy', 'photon',
+  'raft', 'simplex', 'slack', 'sms', 'teams', 'telegram', 'wecom', 'whatsapp',
+];
+
+async function listPlatformPlugins(): Promise<string[]> {
+  try {
+    const entries = await readdir(path.join(HERMES_HOME, 'hermes-agent', 'plugins', 'platforms'), {
+      withFileTypes: true,
+    });
+    const found = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    return found.length > 0 ? found : KNOWN_PLATFORMS;
+  } catch {
+    return KNOWN_PLATFORMS;
+  }
+}
+
+/**
+ * Sets a KEY=value in a profile's .env, replacing any existing definition.
+ *
+ * This matters because .env takes precedence over config.yaml: a stale
+ * API_SERVER_PORT there silently wins over anything `hermes config set`
+ * writes, which is exactly how a profile ends up trying to bind another
+ * profile's port.
+ */
+async function upsertEnv(name: string, key: string, value: string): Promise<void> {
+  const envPath = path.join(HERMES_HOME, 'profiles', name, '.env');
+  let text = '';
+  try {
+    text = await readFile(envPath, 'utf8');
+  } catch {
+    text = '';
+  }
+
+  const line = `${key}=${value}`;
+  const pattern = new RegExp(`^[ \\t]*${key}[ \\t]*=.*$`, 'm');
+  if (pattern.test(text)) {
+    text = text.replace(pattern, line);
+  } else {
+    text = text && !text.endsWith('\n') ? `${text}\n${line}\n` : `${text}${line}\n`;
+  }
+  await writeFile(envPath, text, { mode: 0o600 });
+}
+
+/**
+ * Turns off every messaging platform so the gateway boots the API server and
+ * nothing else. Camille only needs chat; a profile's Telegram, Discord, SMS
+ * and Home Assistant adapters are pure overhead here, and when their endpoints
+ * are unreachable they retry in a loop that can pin a core.
+ *
+ * Never applied to the primary profile, whose platforms are presumably wanted.
+ */
+export async function applyChatOnly(name: string): Promise<void> {
+  assertValidProfileName(name);
+  if (name === HERMES_PROFILE) return;
+
+  const platforms = await listPlatformPlugins();
+  for (const platform of platforms) {
+    if (platform === 'api_server') continue;
+    try {
+      await hermes(['config', 'set', `platforms.${platform}.enabled`, 'false'], name);
+    } catch {
+      // An adapter Hermes doesn't recognise is not worth failing a start over.
+    }
+  }
+}
+
+/** Undoes applyChatOnly by removing the disable flags Camille wrote. */
+export async function restoreAllPlatforms(name: string): Promise<void> {
+  assertValidProfileName(name);
+  if (name === HERMES_PROFILE) return;
+
+  const platforms = await listPlatformPlugins();
+  for (const platform of platforms) {
+    if (platform === 'api_server') continue;
+    try {
+      await hermes(['config', 'unset', `platforms.${platform}.enabled`], name);
+    } catch {
+      // Key was never set.
+    }
+  }
+}
+
 /** Ensures the profile's .env carries an API_SERVER_KEY, creating one if absent. */
 export async function ensureApiKey(name: string): Promise<void> {
   assertValidProfileName(name);
@@ -157,6 +248,14 @@ export async function enableApiServer(name: string): Promise<number> {
   await hermes(['config', 'set', 'platforms.api_server.enabled', 'true'], name);
   await hermes(['config', 'set', 'platforms.api_server.extra.host', '127.0.0.1'], name);
   await hermes(['config', 'set', 'platforms.api_server.extra.port', String(port)], name);
+
+  // .env wins over config.yaml. Profiles cloned from an older setup can carry
+  // an API_SERVER_PORT pointing at another profile's port (and a 0.0.0.0 bind),
+  // which silently overrides everything above. Pin all three to match.
+  await upsertEnv(name, 'API_SERVER_ENABLED', 'true');
+  await upsertEnv(name, 'API_SERVER_HOST', '127.0.0.1');
+  await upsertEnv(name, 'API_SERVER_PORT', String(port));
+
   await ensureApiKey(name);
   return port;
 }
