@@ -177,17 +177,23 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
    * untouched profile becomes usable in one click. Gateways take a few seconds
    * to bind their port, hence the poll rather than a single re-check.
    */
-  const startProfile = useCallback(async (name: string) => {
+  const startProfile = useCallback(async (name: string, thenSelect = false) => {
     setBusyProfile(name);
     setError(null);
     try {
       await apiPost(`/api/hermes/profiles/${encodeURIComponent(name)}/gateway`, { action: 'start' });
-      for (let i = 0; i < 12; i++) {
+      // A cold gateway needs a few seconds to bind its port, so poll rather
+      // than checking once and declaring it broken.
+      for (let i = 0; i < 15; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         const data = await apiGet<{ profiles: HermesProfileInfo[] }>('/api/hermes/profiles');
         setProfiles(data.profiles ?? []);
-        if (data.profiles?.find((p) => p.name === name)?.online) break;
+        if (data.profiles?.find((p) => p.name === name)?.online) {
+          if (thenSelect) setProfile(name);
+          return;
+        }
       }
+      setError(`${name} didn't come online. Check its Hermes gateway log.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -381,7 +387,7 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
     return (
       <div className="flex flex-col h-full text-xs">
         <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">
-          Pick a Hermes profile
+          Pick a Hermes profile <span className="text-white/25">— stopped ones start on click</span>
         </div>
         <div data-no-drag className="flex-1 overflow-y-auto space-y-1 pr-1">
           {profiles.length === 0 && !error && (
@@ -389,32 +395,45 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
           )}
           {error && <div className="text-red-400/90 break-words">{error}</div>}
           {profiles.map((p) => (
-            <div
-              key={p.name}
-              className="flex items-center gap-1.5 px-2 py-1.5 rounded border border-white/10"
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.online ? 'bg-emerald-400' : 'bg-white/25'}`}
-              />
+            <div key={p.name} className="flex items-center gap-1.5">
+              {/*
+                The row itself is the primary action. A stopped profile isn't a
+                dead end: clicking it starts its gateway (enabling the API
+                server first if it never had one) and then binds this widget to
+                it. min-w-0 lets the name truncate instead of shoving the stop
+                button out of a 360px-wide HUD panel.
+              */}
               <button
-                onClick={() => p.online && setProfile(p.name)}
-                disabled={!p.online}
-                className="text-left truncate enabled:text-cyan-300 enabled:hover:underline disabled:text-white/45"
-              >
-                {p.name}
-              </button>
-              <span className="text-white/25 ml-auto text-[10px] shrink-0">
-                {busyProfile === p.name ? 'working…' : p.online ? `:${p.port}` : (p.reason ?? 'stopped')}
-              </span>
-              <button
-                onClick={() => void (p.online ? stopProfile(p.name) : startProfile(p.name))}
+                onClick={() =>
+                  void (p.online ? setProfile(p.name) : startProfile(p.name, true))
+                }
                 disabled={busyProfile !== null}
-                className={`text-[10px] uppercase tracking-wider shrink-0 disabled:opacity-30 ${
-                  p.online ? 'text-white/30 hover:text-red-300' : 'text-emerald-300/70 hover:text-emerald-300'
-                }`}
+                className="flex-1 min-w-0 flex items-center gap-1.5 text-left px-2 py-1.5 rounded border border-white/10 hover:border-cyan-400/60 hover:bg-cyan-400/10 disabled:opacity-40 transition-colors"
               >
-                {p.online ? 'stop' : 'start'}
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.online ? 'bg-emerald-400' : 'bg-white/25'}`}
+                />
+                <span className={`truncate ${p.online ? 'text-cyan-300' : 'text-white/60'}`}>
+                  {p.name}
+                </span>
+                <span className="text-white/25 ml-auto text-[10px] shrink-0">
+                  {busyProfile === p.name
+                    ? 'starting…'
+                    : p.online
+                      ? `:${p.port}`
+                      : (p.reason ?? 'stopped')}
+                </span>
               </button>
+              {p.online && (
+                <button
+                  onClick={() => void stopProfile(p.name)}
+                  disabled={busyProfile !== null}
+                  title={`Stop ${p.name}'s gateway and free its memory`}
+                  className="text-[10px] uppercase tracking-wider shrink-0 text-white/30 hover:text-red-300 disabled:opacity-30"
+                >
+                  stop
+                </button>
+              )}
             </div>
           ))}
 
