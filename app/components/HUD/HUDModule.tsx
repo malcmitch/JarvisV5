@@ -89,6 +89,36 @@ export function HUDModule({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanReady]);
 
+  /**
+   * Expanded size and position, in pixels.
+   *
+   * Framer maps `x` and `translateX` onto the same transform, so setting both
+   * (as this previously did with '50vw' and '-50%') means one is discarded and
+   * the panel lands off-screen. Computing the centre ourselves keeps expanded
+   * and dragged states in one coordinate system: plain numeric transforms.
+   */
+  const expandedBox = (() => {
+    const vw = typeof window === 'undefined' ? 1440 : window.innerWidth;
+    const vh = typeof window === 'undefined' ? 900 : window.innerHeight;
+    const w = expandedSize === 'large' ? Math.min(960, vw * 0.9) : vw * 0.6;
+    const h = expandedSize === 'large' ? Math.min(vh * 0.88, 1200) : vh * 0.6;
+    return {
+      width: w,
+      height: h,
+      x: Math.max(0, (vw - w) / 2),
+      y: Math.max(0, (vh - h) / 2),
+    };
+  })();
+
+  // Re-render on viewport resize so an expanded panel stays centred rather
+  // than keeping the centre it was given when it opened.
+  const [, setViewportTick] = useState(0);
+  useEffect(() => {
+    const onResize = () => setViewportTick((n) => n + 1);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // Animation variants
   const variants = {
     minimized: {
@@ -101,12 +131,10 @@ export function HUDModule({
       opacity: 1
     },
     expanded: {
-      x: '50vw',
-      y: '50vh',
-      translateX: '-50%',
-      translateY: '-50%',
-      width: expandedSize === 'large' ? 'min(960px, 90vw)' : '60vw',
-      height: expandedSize === 'large' ? 'min(88vh, 1200px)' : '60vh',
+      x: expandedBox.x,
+      y: expandedBox.y,
+      width: expandedBox.width,
+      height: expandedBox.height,
       zIndex: 50,
       scale: 1,
       opacity: 1
