@@ -2,13 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { streamHermesChat } from '../../../lib/hermes-stream';
+
 /**
  * A live window into one local Hermes agent session, rendered as a HUD widget.
  *
- * Talks to Camille's own /api/hermes/sessions* routes, which proxy the
- * Hermes API Server's /api/sessions resource (not the messaging-platform
- * gateway). That means every local session shows up here — CLI, desktop,
- * cron, API-created — with no Telegram/Discord/etc. platform required.
+ * Reads (session list, transcript history) go through Camille's
+ * /api/hermes/sessions* routes, which proxy the Hermes API Server's
+ * /api/sessions resource. Sends go through /api/hermes/stream — the
+ * /v1/chat/completions SSE path bound to this session via the
+ * X-Hermes-Session-Id header — so replies render token-by-token with live
+ * tool status, and long agent runs can be cancelled mid-flight.
  *
  * Several instances can coexist, each bound to a different session, so
  * the dashboard can show a whole crew of local Hermes tasks at once.
@@ -29,19 +33,6 @@ interface HermesMessage {
 
 async function apiGet<T>(url: string): Promise<T> {
   const res = await fetch(url);
-  const body = await res.json();
-  if (!res.ok || body?.error) {
-    throw new Error(body?.error ?? `Request failed (${res.status})`);
-  }
-  return body as T;
-}
-
-async function apiPost<T>(url: string, payload: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
   const body = await res.json();
   if (!res.ok || body?.error) {
     throw new Error(body?.error ?? `Request failed (${res.status})`);
@@ -92,8 +83,12 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [streamText, setStreamText] = useState('');
+  const [streamStatus, setStreamStatus] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Restore this widget's bound session.
   useEffect(() => {
@@ -140,16 +135,19 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
   useEffect(() => {
     if (!selected) return;
     void refreshMessages(selected);
-    pollRef.current = setInterval(() => void refreshMessages(selected), POLL_MS);
+    pollRef.current = setInterval(() => {
+      if (!streamingRef.current) void refreshMessages(selected);
+    }, POLL_MS);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      abortRef.current?.abort();
     };
   }, [selected, refreshMessages]);
 
   // Keep the transcript pinned to the newest message.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages]);
+  }, [messages, streamText, streamStatus]);
 
   const bind = (s: HermesSessionSummary) => {
     const name = sessionLabel(s);
@@ -180,17 +178,55 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
     if (!text || !selected || sending) return;
     setSending(true);
     setDraft('');
+    setError(null);
+    setStreamText('');
+    setStreamStatus([]);
+    streamingRef.current = true;
+    const controller = new AbortController();
+    abortRef.current = controller;
     // Optimistic echo so the widget feels instant.
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
-    try {
-      await apiPost(`/api/hermes/sessions/${encodeURIComponent(selected)}/messages`, { message: text });
-      setTimeout(() => void refreshMessages(selected), 1200);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSending(false);
-    }
+
+    let acc = '';
+    await streamHermesChat({
+      prompt: text,
+      sessionId: selected,
+      signal: controller.signal,
+      onDelta: (t) => {
+        acc += t;
+        setStreamText(acc);
+      },
+      onToolEvent: (evt) => {
+        const label =
+          evt.kind === 'tool_calls'
+            ? 'tool call…'
+            : typeof (evt.payload as { step?: unknown })?.step === 'string'
+              ? String((evt.payload as { step: string }).step)
+              : evt.kind;
+        setStreamStatus((prev) => (prev[prev.length - 1] === label ? prev : [...prev, label]));
+      },
+      onDone: (full) => {
+        if (full) setMessages((prev) => [...prev, { role: 'assistant', content: full }]);
+      },
+      onError: (message, code) => {
+        if (code === 'cancelled') {
+          if (acc) setMessages((prev) => [...prev, { role: 'assistant', content: acc + ' …[cancelled]' }]);
+        } else {
+          setError(message);
+        }
+      },
+    });
+
+    streamingRef.current = false;
+    abortRef.current = null;
+    setStreamText('');
+    setStreamStatus([]);
+    setSending(false);
+    // Reconcile with Hermes's stored transcript (ids, reasoning, ordering).
+    void refreshMessages(selected);
   };
+
+  const cancel = () => abortRef.current?.abort();
 
   // ── Session picker ──
   if (!selected) {
@@ -261,6 +297,19 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
             )}
           </div>
         ))}
+        {sending && (
+          <div>
+            {streamStatus.length > 0 && (
+              <div className="text-[10px] uppercase tracking-wider text-amber-300/70 mb-0.5">
+                {streamStatus[streamStatus.length - 1]}
+              </div>
+            )}
+            <div className="px-2 py-1 rounded max-w-[92%] whitespace-pre-wrap break-words leading-snug bg-cyan-400/10 border border-cyan-400/20 text-white/90">
+              {streamText || <span className="text-white/40 italic">Hermes is working…</span>}
+              <span className="inline-block w-1.5 h-3 ml-0.5 bg-cyan-300/80 animate-pulse align-middle" />
+            </div>
+          </div>
+        )}
         {error && <div className="text-red-400/90 break-words">{error}</div>}
       </div>
 
@@ -274,16 +323,25 @@ export function HermesBotWidget({ widgetId }: { widgetId: string }) {
               void send();
             }
           }}
-          placeholder={sending ? 'sending…' : 'Message this session…'}
+          placeholder={sending ? 'Hermes is responding…' : 'Message this session…'}
           className="flex-1 bg-white/5 border border-white/10 focus:border-cyan-400/60 rounded px-2 py-1.5 outline-none text-white/90 placeholder:text-white/25"
         />
-        <button
-          onClick={() => void send()}
-          disabled={sending || !draft.trim()}
-          className="px-2.5 rounded border border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-30 uppercase tracking-wider text-[10px]"
-        >
-          send
-        </button>
+        {sending ? (
+          <button
+            onClick={cancel}
+            className="px-2.5 rounded border border-red-400/40 text-red-300 hover:bg-red-400/10 uppercase tracking-wider text-[10px]"
+          >
+            stop
+          </button>
+        ) : (
+          <button
+            onClick={() => void send()}
+            disabled={!draft.trim()}
+            className="px-2.5 rounded border border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-30 uppercase tracking-wider text-[10px]"
+          >
+            send
+          </button>
+        )}
       </div>
     </div>
   );

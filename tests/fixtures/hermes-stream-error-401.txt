@@ -1,0 +1,6 @@
+data: {"id": "chatcmpl-7bb74e10fc2a4a83a8daa24465baa", "object": "chat.completion.chunk", "created": 1787065036, "model": "hermes-agent", "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-7bb74e10fc2a4a83a8daa24465baa", "object": "chat.completion.chunk", "created": 1787065036, "model": "hermes-agent", "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}], "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, "error": {"message": "HTTP 401: OAuth access token has expired. Re-authenticate to continue.", "type": "agent_error"}, "hermes": {"completed": false, "partial": false, "failed": true, "error": "HTTP 401: OAuth access token has expired. Re-authenticate to continue.", "error_code": "agent_error"}}
+
+data: [DONE]
+
