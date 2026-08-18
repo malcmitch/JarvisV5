@@ -50,6 +50,10 @@ export function OriginalVisualizer({ fftData, status }: Props) {
     };
 
     const animate = (now: number) => {
+      // Hidden window: keep the loop alive but draw nothing. Camille runs
+      // with backgroundThrottling disabled, so without this the canvas keeps
+      // repainting behind other windows.
+      if (typeof document !== 'undefined' && document.hidden) return;
       rafRef.current = requestAnimationFrame(animate);
 
       const dt = Math.min((now - (st.lastTime || now)) * 0.001, 0.05);

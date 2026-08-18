@@ -86,6 +86,10 @@ export function QuarterRingsVisualizer({ fftData, status }: Props) {
         .getPropertyValue('--accent-rgb').trim() || '34, 211, 238';
 
     const draw = (now: number) => {
+      // Hidden window: keep the loop alive but draw nothing. Camille runs
+      // with backgroundThrottling disabled, so without this the canvas keeps
+      // repainting behind other windows.
+      if (typeof document !== 'undefined' && document.hidden) return;
       rafRef.current = requestAnimationFrame(draw);
 
       const css  = canvas.getBoundingClientRect();

@@ -135,6 +135,10 @@ export function ArcReactorVisualizer({ fftData, status }: Props) {
     };
 
     const draw = (now: number) => {
+      // Hidden window: keep the loop alive but draw nothing. Camille runs
+      // with backgroundThrottling disabled, so without this the canvas keeps
+      // repainting behind other windows.
+      if (typeof document !== 'undefined' && document.hidden) return;
       rafRef.current = requestAnimationFrame(draw);
 
       const css = canvas.getBoundingClientRect();

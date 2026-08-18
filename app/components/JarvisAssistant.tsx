@@ -108,14 +108,17 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localAudioStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  // Gate audio-reactive re-renders (see updateLevel below).
+  // Only the canvas visualizers consume the 64-bar FFT; the default
+  // frequency-ring uses audioLevel alone. Tracked in a ref so the audio
+  // loop can skip the reduction without being torn down and rebuilt.
+  const needsFftRef = useRef(false);
+  const lastFftCommitRef = useRef(0);
+  const lastLevelRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
-  const [ring1Rotation, setRing1Rotation] = useState(0);
-  const [ring2Rotation, setRing2Rotation] = useState(0);
   const [centerWidget, setCenterWidget] = useState<{ type: 'model'; path: string; name: string } | null>(null);
-  const rotationFrameRef = useRef<number | null>(null);
-  const lastTimeRef = useRef<number>(Date.now());
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const elPollRef = useRef<number | null>(null);
@@ -245,6 +248,10 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    needsFftRef.current = settings.visualizer !== 'frequency-ring';
+  }, [settings.visualizer]);
 
   useEffect(() => {
     const unsubscribe = window.electron?.onDesktopOverlayClick?.(() => {
@@ -719,26 +726,11 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
     );
   }, [dynamicState.loaded, dynamicState.allFunctions]);
 
-  // Continuous rotation for rings
-  useEffect(() => {
-    const rotate = () => {
-      const now = Date.now();
-      const delta = (now - lastTimeRef.current) / 1000;
-      lastTimeRef.current = now;
-
-      setRing1Rotation((prev) => (prev + 40 * delta) % 360);
-      setRing2Rotation((prev) => (prev - 20 * delta) % 360);
-
-      rotationFrameRef.current = requestAnimationFrame(rotate);
-    };
-    rotate();
-
-    return () => {
-      if (rotationFrameRef.current) {
-        cancelAnimationFrame(rotationFrameRef.current);
-      }
-    };
-  }, []);
+  // Ring rotation is a CSS keyframe animation (camille-ring-spin in
+  // globals.css), not a React loop. The previous version called setState twice
+  // per animation frame, re-rendering this entire component 60 times a second
+  // to spin a decoration — the largest single CPU cost in the app while idle.
+  // CSS transforms are composited off the main thread and cost nothing here.
 
   // Audio level monitoring with FFT
   useEffect(() => {
@@ -783,6 +775,15 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
         const updateLevel = () => {
+          // Nothing on screen to drive while the window is hidden, and
+          // backgroundThrottling is disabled for this window, so bail
+          // explicitly rather than burning a frame's worth of FFT work.
+          if (typeof document !== 'undefined' && document.hidden) {
+            animationFrameRef.current = requestAnimationFrame(updateLevel);
+            return;
+          }
+          // hidden — nothing to drive
+
           if (analyserRef.current && statusRef.current === 'active') {
             analyserRef.current.getByteFrequencyData(dataArray);
             
@@ -794,8 +795,30 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
             
             let normalizedVolume = Math.min(average / 128, 1);
             normalizedVolume = Math.pow(normalizedVolume, 0.6) * 1.5;
-            setAudioLevel(Math.min(normalizedVolume, 1));
+            const level = Math.min(normalizedVolume, 1);
+
+            // Analysis runs at frame rate, but the UI it drives (a ring scale
+            // and 64 bars) reads the same above ~30fps. Committing state every
+            // frame meant a full re-render per frame whenever the mic was live.
+            // Gate on elapsed time, with a large jump always allowed through so
+            // transients still feel instant.
+            const nowMs = performance.now();
+            if (nowMs - lastFftCommitRef.current < 33
+                && Math.abs(level - lastLevelRef.current) < 0.08) {
+              animationFrameRef.current = requestAnimationFrame(updateLevel);
+              return;
+            }
+            lastFftCommitRef.current = nowMs;
+            lastLevelRef.current = level;
+
+            setAudioLevel(level);
             
+            if (!needsFftRef.current) {
+              // frequency-ring is on screen: audioLevel is all it needs.
+              animationFrameRef.current = requestAnimationFrame(updateLevel);
+              return;
+            }
+
             const barData: number[] = [];
             const usefulBins = Math.floor(dataArray.length / 2);
             const samplesPerBar = usefulBins / FFT_BARS;
@@ -1210,7 +1233,8 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
               <div
                 className="absolute inset-0 flex items-center justify-center pointer-events-none"
                 style={{
-                  transform: `rotate(${ring2Rotation}deg) scale(${ring2Scale})`,
+                  transform: `scale(${ring2Scale})`,
+                  animation: 'camille-ring-spin-reverse 18s linear infinite',
                   opacity: visualStatus === 'active' ? 1 : 0.3,
                   transition: 'opacity 300ms'
                 }}
@@ -1263,7 +1287,8 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
               <div
                 className="absolute inset-0 flex items-center justify-center pointer-events-none"
                 style={{
-                  transform: `rotate(${ring1Rotation}deg) scale(${ring1Scale})`,
+                  transform: `scale(${ring1Scale})`,
+                  animation: 'camille-ring-spin 9s linear infinite',
                   opacity: visualStatus === 'active' ? 1 : 0.5,
                   transition: 'opacity 200ms'
                 }}

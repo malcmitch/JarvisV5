@@ -251,3 +251,19 @@ html:not([data-theme="arc-reactor"]) {
   animation: pulse-ring 2s ease-out infinite;
   cursor: pointer;
 }
+
+
+/* HUD ring rotation. Lives here rather than in a requestAnimationFrame loop so
+   spinning the rings costs no JavaScript and no React renders per frame. */
+@keyframes camille-ring-spin {
+  from { rotate: 0deg; }
+  to   { rotate: 360deg; }
+}
+@keyframes camille-ring-spin-reverse {
+  from { rotate: 360deg; }
+  to   { rotate: 0deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes camille-ring-spin { from, to { rotate: 0deg; } }
+  @keyframes camille-ring-spin-reverse { from, to { rotate: 0deg; } }
+}
