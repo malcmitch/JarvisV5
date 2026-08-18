@@ -95,7 +95,7 @@ const WIDGET_META: Record<WidgetType, { title: string; width: number; height: nu
   uptime:       { title: 'HOST MONITOR',    width: 300, height: 220 },
   orbit:        { title: 'ORBITAL TRACKER', width: 340, height: 290 },
   calculator:   { title: 'COMPUTE',         width: 280, height: 380 },
-  'hermes-bot': { title: 'HERMES BOT',      width: 360, height: 340 },
+  'hermes-bot': { title: 'HERMES BOT',      width: 380, height: 440 },
 };
 
 // ── HUD layout persistence ───────────────────────────────────────────────────

@@ -76,6 +76,16 @@ export function CommandPalette() {
         setQuery('');
         setSelected(0);
       }
+      // Cmd/Ctrl+Shift+H — spawn another Hermes Bot widget. Shift keeps it
+      // clear of the browser's own Cmd+H (hide) and Ctrl+H (back/delete)
+      // bindings, and hermes-bot is multi-instance so each press adds one.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        if (isInterfaceLocked()) return;
+        sfx('select_confirm', 0.45);
+        dispatch('jarvis:hud', { command: 'open', widget: 'hermes-bot' });
+        setOpen(false);
+      }
       if (e.key === 'Escape') setOpen(false);
     };
     window.addEventListener('keydown', handler);
