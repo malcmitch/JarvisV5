@@ -54,6 +54,7 @@ const WIDGETS: { widget: string; label: string }[] = [
   { widget: 'orbit', label: 'Orbital Tracker' },
   { widget: 'calculator', label: 'Calculator' },
   { widget: 'hermes-bot', label: 'Hermes Bot' },
+  { widget: 'hermes-health', label: 'Agent Health' },
 ];
 
 /**

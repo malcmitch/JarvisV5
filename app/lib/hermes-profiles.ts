@@ -388,6 +388,38 @@ export async function stopGateway(name: string): Promise<void> {
   await new Promise((r) => setTimeout(r, 1500));
 }
 
+export type GatewayJobState = 'running' | 'loaded' | 'absent';
+
+/**
+ * Asks launchd about a profile's gateway job:
+ *   running — job is loaded and has a live PID
+ *   loaded  — job is registered but not currently running
+ *   absent  — launchd has never heard of it
+ *
+ * Paired with an API health probe this separates the two failures that look
+ * identical from the outside: a gateway that isn't up (start it) and a gateway
+ * that is up but not answering (restart it).
+ */
+export async function gatewayJobState(name: string): Promise<GatewayJobState> {
+  assertValidProfileName(name);
+  const label = launchdLabel(name);
+  let listing: string;
+  try {
+    listing = await launchctl(['list']);
+  } catch {
+    return 'absent';
+  }
+
+  const row = listing
+    .split('\n')
+    .map((l) => l.split('\t'))
+    .find((cols) => cols[cols.length - 1]?.trim() === label);
+
+  if (!row) return 'absent';
+  const pid = row[0]?.trim();
+  return pid && pid !== '-' ? 'running' : 'loaded';
+}
+
 /** Reads a profile's configured port straight from disk (no health check). */
 export async function configuredPort(name: string): Promise<number | null> {
   assertValidProfileName(name);
