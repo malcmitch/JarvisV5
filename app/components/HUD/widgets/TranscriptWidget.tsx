@@ -39,7 +39,7 @@ export function TranscriptWidget() {
   }, [lines]);
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto flex flex-col gap-2 pr-1">
+    <div ref={scrollRef} data-no-drag className="h-full overflow-y-auto flex flex-col gap-2 pr-1">
       {lines.length === 0 && (
         <div className="flex-1 flex flex-col items-center justify-center gap-1">
           <p className="font-mono text-[10px] text-white/30 uppercase tracking-widest">Awaiting comms</p>

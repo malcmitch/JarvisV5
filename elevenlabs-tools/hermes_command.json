@@ -1,0 +1,29 @@
+{
+  "type": "client",
+  "name": "hermes_command",
+  "description": "Send a task or instruction to Hermes Agent, which can use its terminal, files, browser, desktop controls, skills, and other tools. Use this whenever the user asks Camille to ask, tell, use, or control Hermes. Return Hermes's result to the user.",
+  "disable_interruptions": false,
+  "force_pre_tool_speech": false,
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "tool_error_handling_mode": "auto",
+  "execution_mode": "immediate",
+  "assignments": [],
+  "expects_response": true,
+  "response_timeout_secs": 120,
+  "parameters": [
+    {
+      "id": "command",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The task or instruction Hermes Agent should carry out. Preserve the user's intent, constraints, and requested outcome.",
+      "dynamic_variable": "",
+      "constant_value": "",
+      "is_system_provided": false,
+      "required": true
+    }
+  ],
+  "dynamic_variables": { "dynamic_variable_placeholders": {} },
+  "response_mocks": []
+}

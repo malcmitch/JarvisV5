@@ -19,7 +19,7 @@ import path from 'path';
  * fully extracted and verified on disk.
  */
 
-const REPO = 'malcmitch/JarvisV5';
+const REPO = 'malcmitch/CamilleV1';
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4h
 const FIRST_CHECK_DELAY_MS = 15 * 1000;
 

@@ -9,6 +9,7 @@ import { FUNCTION_REGISTRY, getFunctionByName, getMemoryAccountId, JarvisFunctio
 import { loadDynamicFunctions, createGetFunctionByName, DynamicFunctionState } from '../lib/dynamic-functions';
 import { XrayWidget } from './XrayWidget';
 import { CameraWidget } from './CameraWidget';
+import { GestureControlWidget } from './GestureControlWidget';
 import { ArcReactorVisualizer } from './visualizers/ArcReactorVisualizer';
 import { SphereNodesVisualizer } from './visualizers/SphereNodesVisualizer';
 import { QuarterRingsVisualizer } from './visualizers/QuarterRingsVisualizer';
@@ -69,6 +70,7 @@ const DEFAULT_SETTINGS: JarvisSettings = {
   voice: 'shimmer',
   initialPrompt: 'You are Camille, a helpful AI assistant. You are always helpful, polite, and concise. A woman with a calm, composed voice and a subtle French lilt. Emotionally controlled. Effortlessly witty and a little bit poking fun at the user.',
   enabledFunctions: [
+    'hermes_command',
     'desktop_mode', 'navigate_to_page', 'jarvis_disconnect',
     'lock_interface', 'set_timer', 'set_reminder', 'hud_layout', 'briefing', 'set_theme', 'ambient_mode',
   ],
@@ -1451,6 +1453,9 @@ export function JarvisAssistant({ compact = false, roundDisplay = false }: { com
 
       {/* Camera Widget */}
       <CameraWidget />
+
+      {/* Gesture Control */}
+      <GestureControlWidget enabled={!!settings.gestureControlEnabled} />
 
       {/* Photo Widgets */}
       <AnimatePresence>

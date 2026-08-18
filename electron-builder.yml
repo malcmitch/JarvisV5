@@ -8,7 +8,7 @@ copyright: "Copyright © 2026"
 publish:
   provider: github
   owner: malcmitch
-  repo: JarvisV5
+  repo: CamilleV1
 
 # Sign-in finishes in the browser and comes back as jarvis://auth?code=…, which
 # only works if the installer claims the scheme with the OS.

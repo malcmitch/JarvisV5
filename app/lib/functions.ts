@@ -3,6 +3,7 @@ import {
   addTimer, cancelTimer, getTimers,
   addReminder, cancelReminder, getReminders,
 } from './timers';
+import { HERMES_COMMAND_FUNCTION } from './hermes-function';
 
 /** Paths from Settings → System — sent with shell / computer-use API calls. */
 export function readToolkitOverrides(): {
@@ -124,6 +125,7 @@ async function fetchUpcomingCalendarEvents(): Promise<CalendarEventSummary[]> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const FUNCTION_REGISTRY: JarvisFunction[] = [
+  HERMES_COMMAND_FUNCTION,
   {
     name: 'get_date',
     label: 'Get Date',
@@ -316,6 +318,98 @@ export const FUNCTION_REGISTRY: JarvisFunction[] = [
         const msg = String(err);
         dispatch({ state: 'error', error: msg });
         return { error: msg };
+      }
+    },
+  },
+  {
+    name: 'reverse_image_search',
+    label: 'Reverse Image Search',
+    description:
+      'Let Camille photograph a consenting person and run a public reverse-image search (Google Lens / Bing Visual Search) to see what matches surface',
+    tool: {
+      type: 'function',
+      name: 'reverse_image_search',
+      description:
+        "Take a photo of the person currently in frame and run it through a public reverse-image search engine (Google Lens, falling back to Bing Visual Search) to see what publicly indexed pages or images look visually similar. " +
+        "This is NOT facial recognition and does not query any private identity or biometric database — it only surfaces whatever ordinary consumer visual-search results those engines already show for the image, and results may be wrong, unrelated, incomplete, or empty. " +
+        "Only call this when the person being photographed has explicitly, verbally consented to being searched right now. Never use this on strangers, minors, or anyone who has not agreed.",
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+    handler: async () => {
+      const dispatch = (detail: object) =>
+        window.dispatchEvent(new CustomEvent('jarvis:camera', { detail }));
+
+      let stream: MediaStream | null = null;
+      let tempPath: string | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        await new Promise<void>((res) => { video.onloadedmetadata = () => res(); });
+        await video.play();
+
+        dispatch({ state: 'capturing' });
+        await new Promise((res) => setTimeout(res, 600));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d')!.drawImage(video, 0, 0);
+        const imageBase64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+
+        stream.getTracks().forEach((t) => t.stop());
+        stream = null;
+
+        dispatch({ state: 'done', imageBase64 });
+
+        // Save the frame to a temp file the computer-use agent can upload.
+        const saveRes = await fetch('/api/reverse-image-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64 }),
+        });
+        const saveData = await saveRes.json();
+        if (saveData.error || !saveData.path) {
+          return { error: saveData.error || 'Could not save the photo for search.' };
+        }
+        tempPath = saveData.path as string;
+
+        const task =
+          `Open the default web browser to a new tab and go to https://lens.google.com. ` +
+          `Click the upload / "Upload an image" control to open the file picker, then in that dialog enter this exact file path and open it: ${tempPath} . ` +
+          `Wait for the visual-search results to finish loading. ` +
+          `Read only what is literally visible on the results page — matched or visually-similar images, page titles, source website names, and any URLs shown. ` +
+          `Do not click ads or sign-in prompts. Do not fabricate results — report only what is actually rendered. ` +
+          `If Google Lens fails to load or returns nothing useful, instead go to https://www.bing.com/visualsearch, upload the same file path (${tempPath}), and report what it shows. ` +
+          `Finish by summarizing, in plain text, exactly what result titles/sources/URLs appeared, or state clearly that no meaningful matches were found.`;
+
+        const res = await fetch('/api/computer-use', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task, ...readToolkitOverrides() }),
+        });
+        const data = await res.json();
+
+        return {
+          ...data,
+          disclaimer:
+            'These are ordinary public reverse-image search results (Google Lens / Bing Visual Search), not a facial-recognition or identity-database match. They may be wrong, unrelated, or empty, and must not be treated as a confirmed identification.',
+        };
+      } catch (err) {
+        if (stream) stream.getTracks().forEach((t) => t.stop());
+        const msg = String(err);
+        dispatch({ state: 'error', error: msg });
+        return { error: msg };
+      } finally {
+        if (tempPath) {
+          const cleanupPath = tempPath;
+          void fetch('/api/reverse-image-search', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: cleanupPath }),
+          }).catch(() => { /* best-effort cleanup */ });
+        }
       }
     },
   },

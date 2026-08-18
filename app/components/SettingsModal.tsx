@@ -178,6 +178,8 @@ export interface JarvisSettings {
   customAccent?: string;
   /** Skip the homescreen startup intro animation */
   disableIntroAnimation?: boolean;
+  /** Webcam hand-gesture control of the whole app (Settings → UI) */
+  gestureControlEnabled?: boolean;
   /**
    * Which memory bucket Camille reads and writes. Give each person on a shared
    * install their own value to keep their remembered facts separate. Empty
@@ -892,6 +894,39 @@ export function SettingsModal({ isOpen, onClose, onSave, initialSettings, dynami
                     <span
                       className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
                         settings.disableIntroAnimation ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* Gesture control */}
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-cyan-500 uppercase tracking-widest">Gesture Control</label>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-white/70">Webcam hand gestures</p>
+                    <p className="text-[10px] text-cyan-700 mt-0.5">
+                      Point with one finger to move the cursor, pinch to click/drag, two fingers to
+                      scroll. Two open palms held briefly pauses/resumes. Escape turns it off
+                      instantly. Camera frames never leave this Mac.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sfx('switch_interface', 0.5, 2);
+                      setSettings({ ...settings, gestureControlEnabled: !settings.gestureControlEnabled });
+                    }}
+                    className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                      settings.gestureControlEnabled
+                        ? 'bg-cyan-500'
+                        : 'bg-cyan-900/50 border border-cyan-500/30'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                        settings.gestureControlEnabled ? 'translate-x-5' : 'translate-x-0'
                       }`}
                     />
                   </button>

@@ -20,6 +20,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
+import {
+  QUIET_BUILT_IN_TOOLS,
+  QUIET_TURN_CONFIG,
+  withVoiceBehaviorSection,
+} from './elevenlabs-prompt.mjs';
+
 const API = 'https://api.elevenlabs.io/v1';
 const ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -102,7 +108,7 @@ const FRESH_TOOL_LINE =
   'web_search, image_generation, run_shell_command, computer_use, find_datasheet, open_url, ' +
   'open_pdf, open_3d_model, control_music, get_now_playing, take_photo, xray, calendar_command, ' +
   'printer_command, fullscreen, desktop_mode, briefing, set_timer, set_reminder, set_theme, ' +
-  'hud_layout, lock_interface, ambient_mode, show_hud_text, 3d_printing, remember, recall, forget';
+  'hud_layout, lock_interface, ambient_mode, show_hud_text, 3d_printing, hermes_command, remember, recall, forget';
 
 async function main() {
   const { agents = [] } = await api('GET', '/convai/agents?page_size=100');
@@ -122,11 +128,18 @@ async function main() {
   const before = { model: prompt.llm, turnModel: turn.turn_model, promptLen: text.length };
 
   text = withMemorySection(text);
+  text = withVoiceBehaviorSection(text);
   text = STALE_TOOL_LINE.test(text)
     ? text.replace(STALE_TOOL_LINE, FRESH_TOOL_LINE)
     : text;
 
-  const promptPatch = { prompt: text };
+  const promptPatch = {
+    prompt: text,
+    built_in_tools: {
+      ...(prompt.built_in_tools ?? {}),
+      ...QUIET_BUILT_IN_TOOLS,
+    },
+  };
   if (!KEEP_MODEL) {
     promptPatch.llm = MODEL;
     // `reasoning_effort` is validated against the *new* model, and the accepted
@@ -138,6 +151,7 @@ async function main() {
   const payload = {
     conversation_config: {
       agent: {
+        first_message: 'Camille online.',
         prompt: promptPatch,
         // The client supplies real values at session start; these placeholders
         // keep the dashboard test bench and any client that forgets to pass
@@ -150,24 +164,7 @@ async function main() {
           },
         },
       },
-      turn: {
-        // turn_v3 is the current detection model; v2 is legacy.
-        turn_model: 'turn_v3',
-        turn_eagerness: 'normal',
-        // Never hang up on Jarvis mid-task just because nobody is talking.
-        silence_end_call_timeout: -1,
-        // Speak a filler instead of going silent while a slow tool or LLM runs.
-        soft_timeout_config: {
-          timeout_seconds: 3.0,
-          message: 'Working on it, sir.',
-          additional_soft_timeout_messages: [
-            'Still processing.',
-            'One moment.',
-          ],
-          randomize_fillers: true,
-          max_soft_timeouts_per_generation: 3,
-        },
-      },
+      turn: QUIET_TURN_CONFIG,
     },
   };
 
@@ -176,9 +173,11 @@ async function main() {
     `  llm        : ${before.model} -> ${KEEP_MODEL ? '(unchanged)' : `${MODEL} (reasoning_effort=${REASONING})`}`,
   );
   console.log(`  turn_model : ${before.turnModel} -> turn_v3`);
-  console.log(`  soft timeout fillers: enabled at 3.0s`);
+  console.log(`  turn timeout: ${turn.turn_timeout ?? '(unset)'} -> ${QUIET_TURN_CONFIG.turn_timeout}s`);
+  console.log(`  soft timeout fillers: disabled`);
   console.log(`  prompt     : ${before.promptLen} -> ${text.length} chars`);
   console.log(`  memory section: ${text.includes(MEMORY_HEADING) ? 'present' : 'MISSING'}`);
+  console.log(`  voice behavior: ${text.includes('# Voice behavior') ? 'present' : 'MISSING'}`);
 
   if (DRY_RUN) {
     console.log('\n[DRY RUN — nothing written]');

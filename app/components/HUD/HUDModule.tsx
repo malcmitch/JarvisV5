@@ -31,6 +31,12 @@ interface HUDModuleProps {
   embedContent?: boolean;
   /** Larger panel when expanded (for document viewing) */
   expandedSize?: 'standard' | 'large';
+  /** Fired once per drag release with the final (possibly snapped) position */
+  onPositionChange?: (id: string, x: number, y: number) => void;
+  /** Given a raw drop position + size, return the snapped position (grid / edge / sibling-widget magnetism) */
+  snapFn?: (x: number, y: number, width: number, height: number) => { x: number; y: number };
+  /** Framer drag constraints — keeps a thrown widget from leaving the HUD area */
+  dragConstraints?: React.RefObject<Element | null>;
 }
 
 export function HUDModule({
@@ -49,6 +55,9 @@ export function HUDModule({
   scanReady = true,
   embedContent = false,
   expandedSize = 'standard',
+  onPositionChange,
+  snapFn,
+  dragConstraints,
 }: HUDModuleProps) {
   const dragControls = useDragControls();
   const [isHovered, setIsHovered] = useState(false);
@@ -56,8 +65,20 @@ export function HUDModule({
   const [scanned, setScanned]     = useState(scanReady); // skip scan if already ready on mount
   const isDraggingRef = useRef(false);
   const resizeRef = useRef({ startX: 0, startY: 0, startWidth: 0, startHeight: 0 });
+  // Position at the moment the current drag began — combined with Framer's
+  // reported offset on release to compute the drop point without waiting on
+  // inertia to settle.
+  const dragStartPos = useRef({ x: initialX, y: initialY });
   // Small per-widget offset so multiple widgets don't scan in perfect lockstep
   const scanDelay = useRef(Math.random() * 0.25);
+
+  // Keep the drag-start snapshot in sync with the committed position whenever
+  // we're not mid-drag (covers external updates like snap-to-grid or resize).
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      dragStartPos.current = { x: initialX, y: initialY };
+    }
+  }, [initialX, initialY]);
 
   // Fire scan the moment scanReady flips true
   useEffect(() => {
@@ -131,11 +152,38 @@ export function HUDModule({
     document.addEventListener('pointerup', handlePointerUp);
   };
 
+  // Trackpad pinch (and ctrl+scroll) resizes the widget in place. Chromium
+  // reports a pinch gesture as a wheel event with ctrlKey set — deltaY < 0
+  // means "pinch out" (grow), deltaY > 0 means "pinch in" (shrink).
+  const handleWheel = (e: React.WheelEvent) => {
+    if (!e.ctrlKey || isExpanded || !onResize) return;
+    if (typeof width !== 'number' || typeof height !== 'number') return;
+    e.preventDefault();
+    const scale = 1 - e.deltaY * 0.01;
+    const newWidth = Math.min(1200, Math.max(200, Math.round(width * scale)));
+    const newHeight = Math.min(1200, Math.max(150, Math.round(height * (newWidth / width))));
+    onResize(id, newWidth, newHeight);
+  };
+
+  // Anywhere on the widget's chrome can start a drag — not just the thin
+  // title bar. Real interactive descendants (buttons, inputs, links, the
+  // resize handle) opt out via closest() so clicks/typing/scrolling inside
+  // widget content still work normally.
+  const handlePanelPointerDown = (e: React.PointerEvent) => {
+    if (isExpanded) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, a, input, textarea, select, [data-no-drag]')) return;
+    dragControls.start(e);
+  };
+
   return (
     <motion.div
       drag={!isExpanded} // Disable drag when expanded
       dragControls={dragControls}
-      dragMomentum={false}
+      dragMomentum={!isExpanded}
+      dragElastic={0.08}
+      dragTransition={{ power: 0.35, timeConstant: 200, modifyTarget: (t) => t }}
+      dragConstraints={dragConstraints}
       dragListener={false} // Only drag via controls
       initial={{ x: initialX, y: initialY, opacity: 1, scale: 1 }}
       animate={isExpanded ? "expanded" : "minimized"}
@@ -144,10 +192,27 @@ export function HUDModule({
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
-      onDragStart={() => { isDraggingRef.current = true; }}
-      onDragEnd={() => { 
+      onWheel={handleWheel}
+      onPointerDown={handlePanelPointerDown}
+      onDragStart={() => {
+        isDraggingRef.current = true;
+        dragStartPos.current = { x: initialX, y: initialY };
+      }}
+      onDragEnd={(_event, info) => {
+        // Momentum keeps the widget moving after release (the "throw"); Framer
+        // settles that animation itself via dragTransition. We only need the
+        // immediate release point to commit to layout state and to snap.
+        if (onPositionChange) {
+          const rawX = dragStartPos.current.x + info.offset.x;
+          const rawY = dragStartPos.current.y + info.offset.y;
+          const w = typeof width === 'number' ? width : 300;
+          const h = typeof height === 'number' ? height : 200;
+          const snapped = snapFn ? snapFn(rawX, rawY, w, h) : { x: rawX, y: rawY };
+          dragStartPos.current = snapped;
+          onPositionChange(id, snapped.x, snapped.y);
+        }
         // Small timeout to prevent click from firing immediately after drag
-        setTimeout(() => { isDraggingRef.current = false; }, 100); 
+        setTimeout(() => { isDraggingRef.current = false; }, 100);
       }}
       onClick={() => {
         if (!isDraggingRef.current && !isExpanded && onToggleExpand) {
@@ -186,9 +251,11 @@ export function HUDModule({
           <div className="absolute top-0 right-0 w-[20px] h-[1px] bg-cyan-400/80 origin-right rotate-45 translate-y-[10px] translate-x-[-4px]" />
           <div className="absolute bottom-0 left-0 w-[20px] h-[1px] bg-cyan-400/80 origin-left rotate-45 translate-y-[-10px] translate-x-[4px]" />
 
-          {/* Header / Drag Handle */}
-          <div 
-            onPointerDown={(e) => { if (!isExpanded) dragControls.start(e); }}
+          {/* Header / Drag Handle — dragging now works from anywhere on the
+              panel (see handlePanelPointerDown), this bar just keeps the
+              grab cursor as a visual affordance and stops the click here
+              from toggling expand. */}
+          <div
             className={cn(
               "h-8 bg-cyan-950/30 border-b border-cyan-500/20 flex items-center justify-between px-4 select-none transition-colors",
               !isExpanded ? "cursor-grab active:cursor-grabbing" : "cursor-default"
@@ -238,14 +305,15 @@ export function HUDModule({
           <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-cyan-400" />
           <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-cyan-400" />
 
-          {/* Resize Handle */}
+          {/* Resize Handle — generous hit area so it's easy to grab with a mouse or finger */}
           {!isExpanded && onResize && (
             <div
-              className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize z-20 flex items-end justify-end p-1"
+              data-no-drag
+              className="absolute bottom-0 right-0 w-9 h-9 cursor-nwse-resize z-20 flex items-end justify-end p-1.5 touch-none"
               onPointerDown={handleResizeStart}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="w-2 h-2 border-r-2 border-b-2 border-cyan-500/50 hover:border-cyan-400 transition-colors" />
+              <div className="w-3 h-3 border-r-2 border-b-2 border-cyan-500/60 hover:border-cyan-400 transition-colors" />
             </div>
           )}
         </motion.div>

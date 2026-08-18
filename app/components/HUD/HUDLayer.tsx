@@ -193,6 +193,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
   const [modules, setModules] = useState<ModuleData[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const hydratedRef = useRef(false);
+  const hudBoundsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // On mobile, start with no default widgets — keeps the UI clean
@@ -426,8 +427,73 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
     ));
   };
 
+  // ── Drag snapping ────────────────────────────────────────────────────────
+  // Snaps a drop point to: the viewport edges, a coarse grid, and the edges
+  // of other widgets already on the HUD — whichever candidate is closest,
+  // within SNAP_DIST px. Makes "let go near where you meant" behave like
+  // "landed exactly there."
+  const SNAP_DIST = 18;
+  const GRID = 20;
+
+  const snapPosition = (
+    rawX: number,
+    rawY: number,
+    w: number,
+    h: number,
+  ): { x: number; y: number } => {
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const MARGIN = 12;
+
+    let x = rawX;
+    let y = rawY;
+    let bestDX = SNAP_DIST;
+    let bestDY = SNAP_DIST;
+
+    const trySnapX = (candidate: number, dist: number) => {
+      if (dist < bestDX) { bestDX = dist; x = candidate; }
+    };
+    const trySnapY = (candidate: number, dist: number) => {
+      if (dist < bestDY) { bestDY = dist; y = candidate; }
+    };
+
+    // Viewport edges (left/right, top/bottom)
+    trySnapX(MARGIN, Math.abs(rawX - MARGIN));
+    trySnapX(vw - w - MARGIN, Math.abs(rawX - (vw - w - MARGIN)));
+    trySnapY(MARGIN, Math.abs(rawY - MARGIN));
+    trySnapY(vh - h - MARGIN, Math.abs(rawY - (vh - h - MARGIN)));
+
+    // Sibling widgets: snap edge-to-edge and align edge-to-edge on the
+    // perpendicular axis so widgets can be lined up flush against each other.
+    for (const m of modules) {
+      const mx2 = m.x + m.width;
+      const my2 = m.y + m.height;
+      trySnapX(m.x, Math.abs(rawX - m.x));               // left-align
+      trySnapX(mx2, Math.abs(rawX - mx2));                // flush right of sibling's left
+      trySnapX(m.x - w, Math.abs(rawX - (m.x - w)));      // flush left of sibling
+      trySnapX(mx2 - w, Math.abs(rawX - (mx2 - w)));      // right-align
+      trySnapY(m.y, Math.abs(rawY - m.y));                // top-align
+      trySnapY(my2, Math.abs(rawY - my2));                // flush below sibling
+      trySnapY(m.y - h, Math.abs(rawY - (m.y - h)));      // flush above sibling
+      trySnapY(my2 - h, Math.abs(rawY - (my2 - h)));      // bottom-align
+    }
+
+    // Fall back to a coarse grid when nothing else was close enough.
+    if (bestDX >= SNAP_DIST) x = Math.round(rawX / GRID) * GRID;
+    if (bestDY >= SNAP_DIST) y = Math.round(rawY / GRID) * GRID;
+
+    return {
+      x: Math.max(MARGIN, Math.min(x, vw - w - MARGIN)),
+      y: Math.max(MARGIN, Math.min(y, vh - h - MARGIN)),
+    };
+  };
+
+  const handlePositionChange = (id: string, x: number, y: number) => {
+    setModules(prev => prev.map(m => (m.id === id ? { ...m, x, y, rightOffset: undefined } : m)));
+  };
+
   return (
-    <div className="fixed inset-0 pointer-events-none z-10 overflow-hidden">
+    <div ref={hudBoundsRef} className="fixed inset-0 pointer-events-none z-10 overflow-hidden">
       {/* Backdrop when expanded - Blurs background */}
       <AnimatePresence>
         {expandedId && (
@@ -461,6 +527,9 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
           isExpanded={expandedId === module.id}
           onToggleExpand={toggleExpand}
           onResize={handleResize}
+          onPositionChange={handlePositionChange}
+          snapFn={snapPosition}
+          dragConstraints={hudBoundsRef}
           scanReady={scanReady}
           expandedSize={module.type === 'pdf' ? 'large' : 'standard'}
           embedContent={module.type === 'image' || module.type === 'model-viewer' || module.type === 'weather-radar' || module.type === 'camera-feed'}

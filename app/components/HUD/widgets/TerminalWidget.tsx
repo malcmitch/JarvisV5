@@ -166,6 +166,7 @@ export function TerminalWidget() {
       {/* Log area */}
       <div
         className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-2 bg-black/60 font-mono scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+        data-no-drag
         onClick={(e) => e.stopPropagation()}
         onWheel={() => setPaused(true)}
       >
