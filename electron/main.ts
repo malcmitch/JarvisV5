@@ -16,7 +16,7 @@ import https from 'https';
 import fs from 'fs';
 import crypto from 'crypto';
 import { spawn, ChildProcess } from 'child_process';
-import { networkInterfaces } from 'os';
+import os, { networkInterfaces } from 'os';
 import { WakeWordService } from './wake-word';
 import { TouchInputService, TouchInputStatus } from './touch-input';
 import { SocialViewsService, SocialPlatformId, SocialBounds } from './social-views';
@@ -942,6 +942,74 @@ app.whenReady().then(async () => {
 
   // Transparent windows blank out guest views on macOS. Social Command flips
   // the main window opaque while open so the four WebContentsViews can paint.
+  /**
+   * Runs one shell command for the terminal widget.
+   *
+   * Exposed over IPC rather than as a Next route on purpose: Camille's dev
+   * server and HTTPS proxy bind 0.0.0.0, and the proxy rewrites Host, so an
+   * HTTP endpoint could not distinguish a LAN client from the local app. Only
+   * the Electron renderer can reach ipcMain.
+   *
+   * Not a PTY — interactive programs won't work, which is a deliberate limit
+   * rather than an oversight. cwd is supplied by the caller because every call
+   * is a fresh process.
+   */
+  ipcMain.handle(
+    'shell:run',
+    async (_event, payload: { command?: string; cwd?: string; timeoutMs?: number }) => {
+      const command = typeof payload?.command === 'string' ? payload.command.trim() : '';
+      if (!command) return { stdout: '', stderr: 'No command given.', exitCode: 1 };
+
+      const requestedCwd = typeof payload?.cwd === 'string' && payload.cwd ? payload.cwd : os.homedir();
+      const timeout = Math.min(Math.max(payload?.timeoutMs ?? 30_000, 1_000), 120_000);
+      const shellPath = process.env.SHELL || '/bin/zsh';
+
+      return await new Promise((resolve) => {
+        const child = spawn(shellPath, ['-lc', command], {
+          cwd: requestedCwd,
+          env: process.env,
+          timeout,
+        });
+
+        // 256 KB is plenty for a HUD panel and stops `cat bigfile` from
+        // pushing megabytes of text through IPC into React state.
+        const LIMIT = 256 * 1024;
+        let stdout = '';
+        let stderr = '';
+        let truncated = false;
+
+        const append = (buf: Buffer, which: 'out' | 'err') => {
+          const text = buf.toString();
+          if (which === 'out') {
+            if (stdout.length + text.length > LIMIT) { truncated = true; stdout = (stdout + text).slice(0, LIMIT); }
+            else stdout += text;
+          } else {
+            if (stderr.length + text.length > LIMIT) { truncated = true; stderr = (stderr + text).slice(0, LIMIT); }
+            else stderr += text;
+          }
+        };
+
+        child.stdout?.on('data', (b: Buffer) => append(b, 'out'));
+        child.stderr?.on('data', (b: Buffer) => append(b, 'err'));
+
+        child.on('error', (err: Error) => {
+          resolve({ stdout, stderr: `${stderr}${err.message}`, exitCode: 127, truncated });
+        });
+
+        child.on('close', (code: number | null, signal: string | null) => {
+          resolve({
+            stdout,
+            stderr: signal === 'SIGTERM' && code === null
+              ? `${stderr}\n[timed out after ${Math.round(timeout / 1000)}s]`
+              : stderr,
+            exitCode: code ?? 1,
+            truncated,
+          });
+        });
+      });
+    },
+  );
+
   ipcMain.handle('window:set-opaque', (_event, opaque: boolean) => {
     if (!mainWindow || mainWindow.isDestroyed()) return { success: false };
     try {

@@ -13,6 +13,7 @@ import { HermesBotWidget } from './widgets/HermesBotWidget';
 import { HermesHealthWidget } from './widgets/HermesHealthWidget';
 import { HermesSchedulesWidget } from './widgets/HermesSchedulesWidget';
 import { HermesSkillsWidget } from './widgets/HermesSkillsWidget';
+import { ShellWidget } from './widgets/ShellWidget';
 import { SuitWidget } from './widgets/SuitWidget';
 import { MusicWidget } from './widgets/MusicWidget';
 import { TextWidget } from './widgets/TextWidget';
@@ -42,7 +43,7 @@ type WidgetType =
   | 'system' | 'network' | 'map' | 'clock' | 'suit' | 'music' | 'text' | 'pdf' | 'image'
   | 'terminal' | 'tv' | 'printer' | 'weather-home' | 'ha-device' | 'ha-toggle' | 'model-viewer'
   | 'agenda' | 'todo' | 'stocks' | 'headlines' | 'timer' | 'weather-radar' | 'camera-feed'
-  | 'transcript' | 'uptime' | 'orbit' | 'calculator' | 'hermes-bot' | 'hermes-health' | 'hermes-schedules' | 'hermes-skills';
+  | 'transcript' | 'uptime' | 'orbit' | 'calculator' | 'hermes-bot' | 'hermes-health' | 'hermes-schedules' | 'hermes-skills' | 'shell';
 
 interface ModuleData {
   id: string;
@@ -102,6 +103,7 @@ const WIDGET_META: Record<WidgetType, { title: string; width: number; height: nu
   'hermes-health': { title: 'AGENT HEALTH', width: 300, height: 200 },
   'hermes-schedules': { title: 'SCHEDULES',  width: 360, height: 360 },
   'hermes-skills': { title: 'SKILLS',        width: 360, height: 420 },
+  'shell': { title: 'SHELL',                 width: 460, height: 320 },
 };
 
 // ── HUD layout persistence ───────────────────────────────────────────────────
@@ -339,7 +341,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
         const newModuleId =
           type === 'image' && module_id?.trim() ? module_id.trim() : String(Date.now());
         setModules(prev => {
-          const multiInstance = ['text', 'pdf', 'image', 'printer', 'ha-device', 'ha-toggle', 'stocks', 'uptime', 'hermes-bot'].includes(type);
+          const multiInstance = ['text', 'pdf', 'image', 'printer', 'ha-device', 'ha-toggle', 'stocks', 'uptime', 'hermes-bot', 'shell'].includes(type);
           if (!multiInstance && prev.some(m => m.type === type)) return prev;
           const meta = WIDGET_META[type];
           const { x: newX, y: newY } = findOpenSpot(meta.width, meta.height, prev);
@@ -545,6 +547,7 @@ export function HUDLayer({ scanReady = true }: { scanReady?: boolean }) {
           {module.type === 'hermes-health' && <HermesHealthWidget />}
           {module.type === 'hermes-schedules' && <HermesSchedulesWidget />}
           {module.type === 'hermes-skills' && <HermesSkillsWidget />}
+          {module.type === 'shell' && <ShellWidget />}
           {module.type === 'system' && <SystemStatusWidget />}
           {module.type === 'network' && <NetworkGraphWidget />}
           {module.type === 'map' && <MapWidget />}

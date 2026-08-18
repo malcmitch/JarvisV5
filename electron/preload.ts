@@ -17,6 +17,16 @@ type CloudResult = {
 
 contextBridge.exposeInMainWorld('electron', {
   isElectron: true,
+  /**
+   * Runs a shell command for the terminal widget. Main-process only, so this
+   * is unreachable from a browser pointed at Camille over the LAN.
+   */
+  runShell: (
+    command: string,
+    cwd?: string,
+    timeoutMs?: number,
+  ): Promise<{ stdout: string; stderr: string; exitCode: number; truncated?: boolean }> =>
+    ipcRenderer.invoke('shell:run', { command, cwd, timeoutMs }),
   platform: process.platform,
   // Sign-in lives entirely in the main process; only the state crosses over, so
   // no access or refresh token is ever reachable from window-scoped JavaScript.

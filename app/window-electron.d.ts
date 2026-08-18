@@ -50,6 +50,15 @@ declare global {
     electron?: {
       isElectron: true;
       platform: NodeJS.Platform;
+      /**
+       * Runs a shell command for the terminal widget. Main-process only, so a
+       * browser pointed at Camille over the LAN cannot reach it.
+       */
+      runShell?: (
+        command: string,
+        cwd?: string,
+        timeoutMs?: number,
+      ) => Promise<{ stdout: string; stderr: string; exitCode: number; truncated?: boolean }>;
       auth?: {
         getState: () => Promise<JarvisAuthState>;
         startLogin: () => Promise<{ ok: boolean; error?: string }>;
