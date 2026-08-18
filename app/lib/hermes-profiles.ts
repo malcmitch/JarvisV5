@@ -5,7 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { listHermesProfiles, parseApiServerPort, readHermesProfile } from './hermes-config.ts';
+import {
+  HERMES_PROFILE,
+  listHermesProfiles,
+  parseApiServerPort,
+  readHermesProfile,
+} from './hermes-config.ts';
 
 const run = promisify(execFile);
 
@@ -73,6 +78,25 @@ async function hermes(args: string[], profile?: string): Promise<string> {
 async function launchctl(args: string[]): Promise<string> {
   const { stdout } = await run('/bin/launchctl', args, { timeout: 60_000 });
   return stdout.trim();
+}
+
+/**
+ * launchctl reports "no such process" (errno 3) when a job isn't loaded and
+ * "already bootstrapped"/errno 37 when it is. Both mean the system is already
+ * in the state we asked for, so neither is a failure worth showing the user.
+ */
+function alreadyInDesiredState(err: unknown): boolean {
+  const text = String(
+    (err as { stderr?: string; message?: string })?.stderr ??
+      (err as Error)?.message ??
+      err,
+  ).toLowerCase();
+  return (
+    text.includes('no such process') ||
+    text.includes('could not find specified service') ||
+    text.includes('already bootstrapped') ||
+    text.includes('service already loaded')
+  );
 }
 
 const guiTarget = (label: string) => `gui/${process.getuid?.() ?? 501}/${label}`;
@@ -155,7 +179,7 @@ export async function installGatewayJob(name: string): Promise<void> {
     ['gateway', 'install', '--force', '--no-start-now', '--no-start-on-login'],
     name,
   );
-  await disableRunAtLoad(name);
+  await disableAutoStart(name);
 }
 
 /** Path to the launchd plist Hermes generates for a profile's gateway. */
@@ -164,12 +188,22 @@ export function plistPath(name: string): string {
 }
 
 /**
- * Flips RunAtLoad to false so the gateway doesn't start at login, then
- * reloads the job definition so launchd picks up the change. Silently does
- * nothing if the plist is missing or already disabled.
+ * Makes a profile's gateway strictly on demand: no start at login, and no
+ * automatic restart after it exits.
+ *
+ * Hermes ships both RunAtLoad=true and KeepAlive=true. KeepAlive is the
+ * important one — with it set, launchd resurrects the gateway seconds after
+ * Camille stops it, so "stop" frees no memory at all and a misbehaving profile
+ * can spin at 100% CPU indefinitely. Camille owns the lifecycle for profiles
+ * it starts on demand, so both keys come off.
+ *
+ * The primary profile is skipped entirely: its always-on launchd job predates
+ * Camille and is meant to survive crashes.
  */
-export async function disableRunAtLoad(name: string): Promise<void> {
+export async function disableAutoStart(name: string): Promise<void> {
   assertValidProfileName(name);
+  if (name === HERMES_PROFILE) return;
+
   const file = plistPath(name);
   let xml: string;
   try {
@@ -178,17 +212,19 @@ export async function disableRunAtLoad(name: string): Promise<void> {
     return;
   }
 
-  const pattern = /(<key>RunAtLoad<\/key>\s*)<true\s*\/>/;
-  if (!pattern.test(xml)) return; // already false, or key absent
+  const before = xml;
+  xml = xml.replace(/(<key>RunAtLoad<\/key>\s*)<true\s*\/>/, '$1<false/>');
+  xml = xml.replace(/(<key>KeepAlive<\/key>\s*)<true\s*\/>/, '$1<false/>');
+  if (xml === before) return;
 
-  await writeFile(file, xml.replace(pattern, '$1<false/>'), 'utf8');
+  await writeFile(file, xml, 'utf8');
 
-  // Reload so launchd reads the edited definition. bootout may fail when the
-  // job isn't currently loaded, which is fine.
+  // Reload so launchd reads the edited definition. With both keys off,
+  // bootstrap registers the job without starting it.
   try {
     await launchctl(['bootout', guiTarget(launchdLabel(name))]);
   } catch {
-    // Not loaded.
+    // Not currently loaded.
   }
   try {
     await launchctl(['bootstrap', `gui/${process.getuid?.() ?? 501}`, file]);
@@ -233,13 +269,24 @@ export async function startGateway(name: string): Promise<void> {
 }
 
 /**
- * Stops a profile's gateway and frees its memory. Uses bootout rather than a
- * signal because Hermes's jobs set KeepAlive: a killed process would simply
- * be restarted by launchd.
+ * Stops a profile's gateway and frees its memory. bootout unloads the job
+ * rather than signalling the process, which is what makes the stop stick.
  */
 export async function stopGateway(name: string): Promise<void> {
   assertValidProfileName(name);
-  await launchctl(['bootout', guiTarget(launchdLabel(name))]);
+  try {
+    await launchctl(['bootout', guiTarget(launchdLabel(name))]);
+  } catch (err) {
+    // Already stopped is the outcome the user wanted; don't report it as a
+    // failure. launchd also has no job at all for a profile that was never
+    // started, which lands here too.
+    if (!alreadyInDesiredState(err)) throw err;
+  }
+
+  // KeepAlive resurrects a job seconds after bootout on any profile whose
+  // plist Camille hasn't taken over yet, so confirm the process is actually
+  // gone rather than trusting the command's exit code.
+  await new Promise((r) => setTimeout(r, 1500));
 }
 
 /** Reads a profile's configured port straight from disk (no health check). */
