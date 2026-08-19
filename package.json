@@ -29,13 +29,14 @@
   },
   "//dependencies": "Only what the Electron main process require()s at runtime. electron-builder ships this list (plus its transitive deps) into app.asar, so anything the renderer or Next server uses belongs in devDependencies — Next already bundles or traces those into .next/standalone.",
   "dependencies": {
+    "@elevenlabs/client": "^1.20.0",
     "http-proxy": "^1.18.1",
     "node-hid": "^3.4.0",
     "selfsigned": "^5.5.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
-    "@elevenlabs/react": "^1.4.0",
+    "@elevenlabs/react": "^1.12.4",
     "@gltf-transform/cli": "^4.4.2",
     "@jitsi/robotjs": "^0.6.22",
     "@mediapipe/tasks-vision": "0.10.17",
