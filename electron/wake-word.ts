@@ -159,10 +159,17 @@ export class WakeWordService {
     if (!app.isPackaged) {
       const scriptPath = path.resolve(__dirname, '..', 'scripts', 'wake_word.py');
       if (fs.existsSync(scriptPath)) {
-        return {
-          cmd: process.platform === 'win32' ? 'python' : 'python3',
-          args: [scriptPath],
-        };
+        // Prefer the project venv (.venv_jarvis) over a bare `python3`, which
+        // resolves to system Python and lacks sounddevice/openwakeword —
+        // the process then crash-loops with ModuleNotFoundError forever.
+        const venvPython = path.resolve(
+          __dirname, '..', '.venv_jarvis', 'bin',
+          process.platform === 'win32' ? 'python.exe' : 'python',
+        );
+        const cmd = fs.existsSync(venvPython)
+          ? venvPython
+          : process.platform === 'win32' ? 'python' : 'python3';
+        return { cmd, args: [scriptPath] };
       }
     }
 
