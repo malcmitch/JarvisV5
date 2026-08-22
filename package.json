@@ -1,6 +1,6 @@
 {
   "name": "jarvis-client",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "Jarvis V5 - AI Desktop Assistant",
   "main": "dist-electron/main.js",
   "private": true,

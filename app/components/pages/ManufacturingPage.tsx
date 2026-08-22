@@ -31,6 +31,29 @@ export interface BuildModel {
   parts?: BuildPart[];
 }
 
+// ── Hermes fabrication feed ───────────────────────────────────────────────────
+export interface FabFile {
+  name: string;
+  path: string;
+  ext: string;
+  size: number;
+  mtime: number;
+  viewable: boolean;
+}
+
+/** Trailing &n=<name> keeps the real extension at the end of the URL so the
+ *  viewer picks the right loader (endsWith('.stl') etc.). */
+function fabUrl(f: FabFile): string {
+  return `/api/fab-files?path=${encodeURIComponent(f.path)}&n=${encodeURIComponent(f.name)}`;
+}
+
+function fabAge(mtime: number): string {
+  const diff = Date.now() - mtime;
+  if (diff < 3_600_000) return `${Math.max(1, Math.floor(diff / 60_000))}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
 interface Machine {
   id: string;
   name: string;
@@ -236,6 +259,28 @@ export function ManufacturingPage({ onNavigateHome, initialModel }: Props) {
   const wheelDrag = useRef<{ startY: number; startOffset: number } | null>(null);
   const wheelIdle = useRef<number | null>(null);
   const railScrolled = useRef(false);
+
+  // ── Hermes fabrication feed: CAD files the agent generated on disk ─────────
+  const [fabFiles, setFabFiles] = useState<FabFile[]>([]);
+  useEffect(() => {
+    let dead = false;
+    const load = async () => {
+      try {
+        const res = await fetch('/api/fab-files');
+        if (!res.ok) return;
+        const data = (await res.json()) as { files?: FabFile[] };
+        if (!dead) setFabFiles(data.files ?? []);
+      } catch {
+        // The feed is garnish; the armory still works without it.
+      }
+    };
+    void load();
+    const t = window.setInterval(() => void load(), 20_000);
+    return () => {
+      dead = true;
+      window.clearInterval(t);
+    };
+  }, []);
 
   // 1 Hz tick while a job runs; completion is detected inside the tick
   useEffect(() => {
@@ -625,6 +670,77 @@ export function ManufacturingPage({ onNavigateHome, initialModel }: Props) {
                 Select Component
               </h2>
               <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-2">
+                {fabFiles.length > 0 && (
+                  <div className="font-mono text-[9px] uppercase tracking-[0.35em] text-white/30 pt-1">
+                    Hermes Fabrication
+                  </div>
+                )}
+                {fabFiles.map((f) => (
+                  <div
+                    key={f.path}
+                    className="flex items-center justify-between px-4 py-3 transition-all group"
+                    style={{
+                      background: 'rgba(34,211,238,0.04)',
+                      border: '1px solid rgba(34,211,238,0.15)',
+                      clipPath: 'polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%)',
+                    }}
+                  >
+                    <button
+                      className="text-left flex-1 min-w-0"
+                      onClick={() => {
+                        if (!f.viewable) {
+                          sfx('click', 0.4);
+                          void fetch('/api/fab-files', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: f.path, action: 'reveal' }),
+                          });
+                          return;
+                        }
+                        sfx('select', 0.5);
+                        setModel({
+                          file: fabUrl(f),
+                          name: f.name.replace(/\.[^.]+$/, ''),
+                          sub: `Hermes · ${f.ext.toUpperCase()} · ${fabAge(f.mtime)}`,
+                        });
+                      }}
+                    >
+                      <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/80 group-hover:text-white transition-colors truncate">
+                        {f.name}
+                      </div>
+                      <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-white/30 mt-0.5">
+                        {f.ext.toUpperCase()} · {fabAge(f.mtime)}{f.viewable ? '' : ' · opens in Finder'}
+                      </div>
+                    </button>
+                    <div className="flex items-center gap-2 shrink-0 ml-3">
+                      <span
+                        className="font-mono text-[9px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity"
+                        style={{ color: ACCENT }}
+                      >
+                        {f.viewable ? 'Load ▸' : 'Reveal ▸'}
+                      </span>
+                      <button
+                        onClick={() => {
+                          sfx('click', 0.4);
+                          void fetch('/api/fab-files', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: f.path, action: 'reveal' }),
+                          });
+                        }}
+                        className="font-mono text-[10px] text-white/35 hover:text-white border border-white/10 px-2 py-1"
+                        title="Reveal in Finder"
+                      >
+                        ⌖
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {fabFiles.length > 0 && (
+                  <div className="font-mono text-[9px] uppercase tracking-[0.35em] text-white/30 pt-2">
+                    Armory
+                  </div>
+                )}
                 {ACCESSORIES.map((a) => (
                   <button
                     key={a.file}
