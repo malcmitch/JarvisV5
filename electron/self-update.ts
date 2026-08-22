@@ -1,4 +1,4 @@
-import { app, dialog, net } from 'electron';
+import { app, BrowserWindow, dialog, net, MessageBoxOptions } from 'electron';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -164,7 +164,16 @@ async function checkOnce(interactive: boolean): Promise<void> {
     return;
   }
 
-  const { response } = await dialog.showMessageBox({
+  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  if (win) {
+    // Surface the window first — a dialog parented to a hidden/fullscreen-
+    // obscured window is itself invisible, which is how 1.5.0 and 1.6.0
+    // ended up hand-installed.
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+  const opts: MessageBoxOptions = {
     type: 'info',
     title: 'Update available',
     message: `Camille ${remote.replace(/^v/, '')} is available (you have ${app.getVersion()}).`,
@@ -172,7 +181,10 @@ async function checkOnce(interactive: boolean): Promise<void> {
     buttons: ['Install and restart', 'Later'],
     defaultId: 0,
     cancelId: 1,
-  });
+  };
+  const { response } = win
+    ? await dialog.showMessageBox(win, opts)
+    : await dialog.showMessageBox(opts);
   if (response !== 0) return;
 
   updateInProgress = true;

@@ -502,8 +502,45 @@ function waitForServer(retries = 40, delay = 500): Promise<void> {
   });
 }
 
+/**
+ * Kill anything already listening on our port before starting the server.
+ *
+ * A previous instance's Next server rewrites its process title to
+ * "next-server", so name-based kills (pkill -f Camille) miss it. A stale
+ * server squatting on the port serves OLD code while the new spawn dies
+ * with EADDRINUSE — and waitForServer happily accepts the impostor's
+ * answers. Kill by port: it cannot be fooled by a renamed process.
+ */
+function clearStaleServerOnPort(): void {
+  if (process.platform === 'win32') return; // lsof path is POSIX-only
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { execSync } = require('child_process') as typeof import('child_process');
+    const pids = execSync(`lsof -tiTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true`, {
+      encoding: 'utf-8',
+      timeout: 5000,
+    })
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => /^\d+$/.test(s) && Number(s) !== process.pid);
+    for (const pid of pids) {
+      try {
+        process.kill(Number(pid), 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+    if (pids.length > 0) {
+      console.warn(`[camille] cleared ${pids.length} stale server(s) on port ${PORT}`);
+    }
+  } catch {
+    // lsof missing or timed out — proceed; EADDRINUSE will surface if real.
+  }
+}
+
 function startNextServer(): Promise<void> {
   return new Promise((resolve, reject) => {
+    clearStaleServerOnPort();
     const appDir = path.join(process.resourcesPath, 'app');
     const serverPath = path.join(appDir, 'server.js');
 

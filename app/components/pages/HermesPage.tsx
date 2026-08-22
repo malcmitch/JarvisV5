@@ -111,6 +111,14 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
     setMessages([]);
     setLive(null);
     try {
+      // Agent-side (CLI/gateway/cron) sessions live outside the WebUI store;
+      // importing adopts them so /api/session and /api/chat/start work. For
+      // sessions already in the store this is a cheap metadata refresh.
+      await fetch(`${CORE}/api/session/import_cli`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: id }),
+      }).catch(() => undefined);
       const res = await fetch(
         `${CORE}/api/session?session_id=${encodeURIComponent(id)}&messages=1&msg_limit=60`,
       );
@@ -143,11 +151,22 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setLive('');
     try {
-      const res = await fetch(`${CORE}/api/chat/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: activeId, message: text }),
-      });
+      const start = () =>
+        fetch(`${CORE}/api/chat/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: activeId, message: text }),
+        });
+      let res = await start();
+      if (res.status === 404) {
+        // Session not yet adopted into the WebUI store — import and retry once.
+        await fetch(`${CORE}/api/session/import_cli`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: activeId }),
+        }).catch(() => undefined);
+        res = await start();
+      }
       const data = (await res.json().catch(() => ({}))) as { stream_id?: string; error?: string };
       if (!res.ok || !data.stream_id) {
         throw new Error(data.error ?? `chat/start ${res.status}`);
