@@ -122,6 +122,7 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
   const [classic, setClassic] = useState(false);
   const [sessions, setSessions] = useState<HermesSession[]>([]);
   const [profiles, setProfiles] = useState<HermesProfile[]>([]);
+  const [pickedProfile, setPickedProfile] = useState<string | null>(null); // null = Hermes's active profile
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<Record<string, boolean>>({
     direct: true, bots: true, chats: true, agents: true, crons: false, other: false,
@@ -213,6 +214,32 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
   }, [messages, live]);
 
   useEffect(() => () => sourceRef.current?.close(), []);
+
+  /** Start a fresh session under the picked profile and open it. */
+  const newChat = useCallback(async () => {
+    try {
+      const res = await fetch(`${CORE}/api/session/new`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pickedProfile ? { profile: pickedProfile } : {}),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        session_id?: string;
+        session?: { session_id?: string };
+        error?: string;
+      };
+      const id = data.session_id ?? data.session?.session_id;
+      if (!res.ok || !id) throw new Error(data.error ?? `session/new ${res.status}`);
+      setActiveId(id);
+      setActiveTitle(`New chat${pickedProfile ? ` · ${pickedProfile}` : ''}`);
+      setMessages([]);
+      setLive(null);
+      setError(null);
+      void loadSessions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [pickedProfile, loadSessions]);
 
   const send = async () => {
     const text = draft.trim();
@@ -323,22 +350,27 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
           <span className="text-cyan-300/90 text-xs uppercase tracking-[0.3em]">Hermes Command</span>
         </div>
         <div className="flex items-center gap-4">
-          {/* Profile strip: which agents exist, which is active, gateway alive */}
-          <div className="flex items-center gap-2 max-w-[40vw] overflow-x-auto">
-            {profiles.map((p) => (
-              <span
-                key={p.name}
-                title={`${p.name}${p.model ? ` · ${p.model}` : ''}${p.gateway_running ? ' · gateway up' : ''}`}
-                className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider whitespace-nowrap ${
-                  p.is_active
-                    ? 'border-cyan-400/50 text-cyan-300 bg-cyan-400/10'
-                    : 'border-white/10 text-white/40'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${p.gateway_running ? 'bg-emerald-400' : 'bg-white/20'}`} />
-                {p.name}
-              </span>
-            ))}
+          {/* Profile strip: pick which agent NEW chats talk to. Ring = your pick,
+              filled = Hermes's own active profile, green dot = gateway alive. */}
+          <div className="flex items-center gap-2 max-w-[50vw] overflow-x-auto">
+            {profiles.map((p) => {
+              const picked = pickedProfile ? pickedProfile === p.name : p.is_active;
+              return (
+                <button
+                  key={p.name}
+                  onClick={() => setPickedProfile(p.is_active ? null : p.name)}
+                  title={`${p.name}${p.model ? ` · ${p.model}` : ''}${p.gateway_running ? ' · gateway up' : ''} — new chats go to the selected profile`}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider whitespace-nowrap transition-colors ${
+                    picked
+                      ? 'border-cyan-400/70 text-cyan-200 bg-cyan-400/15'
+                      : 'border-white/25 text-white/65 hover:border-cyan-400/40 hover:text-cyan-200'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${p.gateway_running ? 'bg-emerald-400' : 'bg-white/30'}`} />
+                  {p.name}
+                </button>
+              );
+            })}
           </div>
           <button onClick={() => setClassic(true)} className="text-white/30 hover:text-cyan-300 text-xs uppercase tracking-widest whitespace-nowrap">classic view</button>
         </div>
@@ -347,13 +379,20 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
       <div className="flex flex-1 min-h-0">
         {/* Session rail */}
         <div className="w-72 shrink-0 border-r border-cyan-400/10 overflow-y-auto py-2 flex flex-col">
-          <div className="px-3 pb-2">
+          <div className="px-3 pb-2 flex gap-1.5">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="search sessions…"
-              className="w-full bg-white/5 border border-white/10 focus:border-cyan-400/50 rounded px-2 py-1 outline-none text-xs text-white/80 placeholder:text-white/25"
+              className="flex-1 min-w-0 bg-white/5 border border-white/10 focus:border-cyan-400/50 rounded px-2 py-1 outline-none text-xs text-white/80 placeholder:text-white/25"
             />
+            <button
+              onClick={() => void newChat()}
+              title={`New chat with ${pickedProfile ?? 'the active profile'}`}
+              className="px-2 rounded border border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 text-xs shrink-0"
+            >
+              +
+            </button>
           </div>
           {error && <div className="px-3 py-2 text-xs text-red-400/90 break-words">{error}</div>}
           {SECTIONS.map(({ key, label, hint }) => {
