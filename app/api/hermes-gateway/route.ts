@@ -50,17 +50,32 @@ function gatewayLogPath(): string {
  * possibly spanning multiple lines until the next timestamped log line.
  */
 function findReplyInLog(log: string, deliveryId: string): string | null {
+  // A delivery can produce several response entries (e.g. a "switched to
+  // fallback model" notice before the real answer) — take the LAST one.
   const marker = new RegExp(
     `\\[webhook\\] Response for webhook:camille:${deliveryId}: `,
+    'g',
   );
-  const m = marker.exec(log);
-  if (!m) return null;
-  const start = m.index + m[0].length;
-  const rest = log.slice(start);
+  let m: RegExpExecArray | null;
+  let last: number = -1;
+  let lastLen = 0;
+  while ((m = marker.exec(log)) !== null) {
+    last = m.index;
+    lastLen = m[0].length;
+  }
+  if (last === -1) return null;
+  const rest = log.slice(last + lastLen);
   // The next log record starts with "YYYY-MM-DD HH:MM:SS" at line start.
   const next = rest.search(/\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
-  const text = (next === -1 ? rest : rest.slice(0, next)).trim();
+  let text = (next === -1 ? rest : rest.slice(0, next)).trim();
+  // Strip the model's fenced reasoning preamble; the spoken answer follows it.
+  text = text.replace(/💭 ?\*\*Reasoning:\*\*\s*```[\s\S]*?```/g, '').trim();
   return text.length > 0 ? text : null;
+}
+
+/** Provider-switch notices are status, not answers — keep waiting past them. */
+function isStatusNotice(text: string): boolean {
+  return text.startsWith('🔄');
 }
 
 export async function POST(req: NextRequest) {
@@ -126,7 +141,7 @@ export async function POST(req: NextRequest) {
       fs.readSync(fd, buf, 0, buf.length, readFrom);
       fs.closeSync(fd);
       const reply = findReplyInLog(buf.toString('utf-8'), deliveryId);
-      if (reply) {
+      if (reply && !isStatusNotice(reply)) {
         return NextResponse.json({ reply, deliveryId });
       }
     } catch {
