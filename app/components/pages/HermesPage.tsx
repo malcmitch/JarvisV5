@@ -1,15 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * Hermes Command — the fusion page.
  *
  * Hermes's sessions and chat rendered NATIVELY in Camille's design language,
  * powered by the Hermes WebUI API through the authenticated /api/hermes-core
- * proxy. Live turns stream token-by-token over SSE. The old full-dashboard
- * iframe survives as a "classic" toggle for everything not yet native
- * (kanban, skills, settings) until each piece gets promoted.
+ * proxy. Live turns stream token-by-token over SSE.
+ *
+ * The session rail is organized the way the agent actually works — profiles
+ * across the top, then sessions grouped by what they ARE (direct line, bots,
+ * chats, agents, automations) instead of one chronological flood where 200
+ * cron runs bury everything else. The old full-dashboard iframe survives as
+ * a "classic" toggle until every piece is promoted native.
  */
 
 const CORE = '/api/hermes-core';
@@ -21,10 +25,23 @@ interface HermesSession {
   title?: string;
   preview?: string;
   last_active?: string;
-  updated_at?: string;
-  kind?: string;
-  origin?: string;
+  updated_at?: number | string;
+  created_at?: number | string;
   message_count?: number;
+  profile?: string;
+  source_tag?: string;
+  session_source?: string;
+  source_label?: string;
+  is_streaming?: boolean;
+  archived?: boolean;
+}
+
+interface HermesProfile {
+  name: string;
+  is_active?: boolean;
+  is_default?: boolean;
+  gateway_running?: boolean;
+  model?: string;
 }
 
 interface CoreMessage {
@@ -58,23 +75,57 @@ function messageText(m: CoreMessage): string {
   return JSON.stringify(c);
 }
 
-/** Group sessions the way the Hermes sidebar does: Today / Yesterday / Earlier. */
-function groupLabel(s: HermesSession): string {
-  const raw = s.last_active ?? s.updated_at;
-  if (!raw) return 'Earlier';
-  const then = new Date(raw);
-  if (Number.isNaN(then.getTime())) return 'Earlier';
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (then >= startOfToday) return 'Today';
-  const startOfYesterday = new Date(startOfToday.getTime() - 86_400_000);
-  if (then >= startOfYesterday) return 'Yesterday';
-  return 'Earlier';
+/** Section assignment: what a session IS, from Hermes's own source tagging. */
+const SECTIONS = [
+  { key: 'direct', label: 'Camille Line', hint: 'gateway messages from this app' },
+  { key: 'bots', label: 'Bots', hint: 'messaging platforms' },
+  { key: 'chats', label: 'Chats', hint: 'WebUI + desktop conversations' },
+  { key: 'agents', label: 'Agents', hint: 'subagents & external agents' },
+  { key: 'crons', label: 'Automations', hint: 'scheduled runs' },
+  { key: 'other', label: 'Other', hint: '' },
+] as const;
+
+type SectionKey = (typeof SECTIONS)[number]['key'];
+
+function sectionOf(s: HermesSession): SectionKey {
+  const tag = (s.source_tag ?? '').toLowerCase();
+  const src = (s.session_source ?? '').toLowerCase();
+  if (tag === 'webhook') return 'direct';
+  if (src === 'messaging' || ['photon', 'telegram', 'whatsapp', 'imessage', 'slack', 'discord'].includes(tag)) return 'bots';
+  if (['webui', 'desktop', 'cli'].includes(tag)) return 'chats';
+  if (src === 'external_agent' || src === 'fork' || ['subagent', 'claude_code', 'api_server'].includes(tag)) return 'agents';
+  if (src === 'cron' || tag === 'cron') return 'crons';
+  return 'other';
+}
+
+function toMillis(v: number | string | undefined): number {
+  if (v == null) return 0;
+  if (typeof v === 'number') return v > 1e12 ? v : v * 1000;
+  const t = new Date(v).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function lastActivity(s: HermesSession): number {
+  return Math.max(toMillis(s.updated_at), toMillis(s.created_at));
+}
+
+function relTime(ms: number): string {
+  if (!ms) return '';
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return 'now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
+  return `${Math.floor(diff / 86_400_000)}d`;
 }
 
 export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
   const [classic, setClassic] = useState(false);
   const [sessions, setSessions] = useState<HermesSession[]>([]);
+  const [profiles, setProfiles] = useState<HermesProfile[]>([]);
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState<Record<string, boolean>>({
+    direct: true, bots: true, chats: true, agents: true, crons: false, other: false,
+  });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState('');
   const [messages, setMessages] = useState<CoreMessage[]>([]);
@@ -91,18 +142,38 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
       if (!res.ok) throw new Error(`sessions ${res.status}`);
       const data = (await res.json()) as HermesSession[] | { sessions?: HermesSession[] };
       const list = Array.isArray(data) ? data : (data.sessions ?? []);
-      setSessions(list.filter((s) => sessionId(s)));
+      setSessions(list.filter((s) => sessionId(s) && !s.archived));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
+  const loadProfiles = useCallback(async () => {
+    try {
+      const res = await fetch(`${CORE}/api/profiles`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { profiles?: HermesProfile[] };
+      setProfiles((data.profiles ?? []).filter((p) => p.name));
+    } catch {
+      // Profiles are decoration; the rail works without them.
+    }
+  }, []);
+
   useEffect(() => {
     void loadSessions();
-    const t = setInterval(() => void loadSessions(), 12_000);
-    return () => clearInterval(t);
-  }, [loadSessions]);
+    void loadProfiles();
+    const t = setInterval(() => {
+      void loadSessions();
+    }, 12_000);
+    const tp = setInterval(() => {
+      void loadProfiles();
+    }, 60_000);
+    return () => {
+      clearInterval(t);
+      clearInterval(tp);
+    };
+  }, [loadSessions, loadProfiles]);
 
   const openSession = useCallback(async (id: string, title: string) => {
     sourceRef.current?.close();
@@ -211,6 +282,22 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
     }
   };
 
+  // Grouping must be computed before any early return — hooks can't be conditional.
+  const q = query.trim().toLowerCase();
+  const grouped = useMemo(() => {
+    const bySection: Record<SectionKey, HermesSession[]> = {
+      direct: [], bots: [], chats: [], agents: [], crons: [], other: [],
+    };
+    for (const s of sessions) {
+      if (q && !sessionTitle(s).toLowerCase().includes(q)) continue;
+      bySection[sectionOf(s)].push(s);
+    }
+    for (const key of Object.keys(bySection) as SectionKey[]) {
+      bySection[key].sort((a, b) => lastActivity(b) - lastActivity(a));
+    }
+    return bySection;
+  }, [sessions, q]);
+
   // ── Classic (full dashboard) view ──
   if (classic) {
     return (
@@ -228,11 +315,6 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
   }
 
   // ── Native command view ──
-  const groups: Record<string, HermesSession[]> = {};
-  for (const s of sessions) {
-    (groups[groupLabel(s)] ??= []).push(s);
-  }
-
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-black">
       <div className="flex items-center justify-between px-4 py-2 border-b border-cyan-400/20 bg-black/80">
@@ -240,37 +322,82 @@ export function HermesPage({ onNavigateHome }: { onNavigateHome: () => void }) {
           <button onClick={onNavigateHome} className="text-cyan-400/80 hover:text-cyan-300 text-xs uppercase tracking-widest">← Camille</button>
           <span className="text-cyan-300/90 text-xs uppercase tracking-[0.3em]">Hermes Command</span>
         </div>
-        <button onClick={() => setClassic(true)} className="text-white/30 hover:text-cyan-300 text-xs uppercase tracking-widest">classic view</button>
+        <div className="flex items-center gap-4">
+          {/* Profile strip: which agents exist, which is active, gateway alive */}
+          <div className="flex items-center gap-2 max-w-[40vw] overflow-x-auto">
+            {profiles.map((p) => (
+              <span
+                key={p.name}
+                title={`${p.name}${p.model ? ` · ${p.model}` : ''}${p.gateway_running ? ' · gateway up' : ''}`}
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider whitespace-nowrap ${
+                  p.is_active
+                    ? 'border-cyan-400/50 text-cyan-300 bg-cyan-400/10'
+                    : 'border-white/10 text-white/40'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${p.gateway_running ? 'bg-emerald-400' : 'bg-white/20'}`} />
+                {p.name}
+              </span>
+            ))}
+          </div>
+          <button onClick={() => setClassic(true)} className="text-white/30 hover:text-cyan-300 text-xs uppercase tracking-widest whitespace-nowrap">classic view</button>
+        </div>
       </div>
 
       <div className="flex flex-1 min-h-0">
         {/* Session rail */}
-        <div className="w-72 shrink-0 border-r border-cyan-400/10 overflow-y-auto py-2">
+        <div className="w-72 shrink-0 border-r border-cyan-400/10 overflow-y-auto py-2 flex flex-col">
+          <div className="px-3 pb-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="search sessions…"
+              className="w-full bg-white/5 border border-white/10 focus:border-cyan-400/50 rounded px-2 py-1 outline-none text-xs text-white/80 placeholder:text-white/25"
+            />
+          </div>
           {error && <div className="px-3 py-2 text-xs text-red-400/90 break-words">{error}</div>}
-          {(['Today', 'Yesterday', 'Earlier'] as const).map((label) =>
-            groups[label]?.length ? (
-              <div key={label}>
-                <div className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-[0.25em] text-white/25">{label}</div>
-                {groups[label].map((s) => {
-                  const id = sessionId(s);
-                  return (
-                    <button
-                      key={id}
-                      onClick={() => void openSession(id, sessionTitle(s))}
-                      className={`w-full text-left px-3 py-1.5 text-xs truncate transition-colors ${
-                        id === activeId
-                          ? 'text-cyan-300 bg-cyan-400/10 border-l-2 border-cyan-400'
-                          : 'text-white/60 hover:text-white/90 hover:bg-white/5 border-l-2 border-transparent'
-                      }`}
-                      title={sessionTitle(s)}
-                    >
-                      {sessionTitle(s)}
-                    </button>
-                  );
-                })}
+          {SECTIONS.map(({ key, label, hint }) => {
+            const list = grouped[key];
+            if (!list.length) return null;
+            const expanded = q ? true : (open[key] ?? true);
+            return (
+              <div key={key}>
+                <button
+                  onClick={() => setOpen((prev) => ({ ...prev, [key]: !expanded }))}
+                  title={hint}
+                  className="w-full flex items-center justify-between px-3 pt-3 pb-1 text-[10px] uppercase tracking-[0.25em] text-white/30 hover:text-cyan-300/70"
+                >
+                  <span>{label}</span>
+                  <span className="text-white/20">{expanded ? '−' : `${list.length}`}</span>
+                </button>
+                {expanded &&
+                  list.slice(0, key === 'crons' ? 30 : 100).map((s) => {
+                    const id = sessionId(s);
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => void openSession(id, sessionTitle(s))}
+                        className={`w-full text-left px-3 py-1.5 transition-colors border-l-2 ${
+                          id === activeId
+                            ? 'text-cyan-300 bg-cyan-400/10 border-cyan-400'
+                            : 'text-white/60 hover:text-white/90 hover:bg-white/5 border-transparent'
+                        }`}
+                        title={sessionTitle(s)}
+                      >
+                        <span className="flex items-center gap-2">
+                          {s.is_streaming && <span className="w-1.5 h-1.5 rounded-full bg-cyan-300 animate-pulse shrink-0" />}
+                          <span className="flex-1 text-xs truncate">{sessionTitle(s)}</span>
+                          <span className="text-[9px] text-white/25 shrink-0">{relTime(lastActivity(s))}</span>
+                        </span>
+                        {key === 'bots' && s.source_label && (
+                          <span className="block text-[9px] text-white/25 uppercase tracking-wider pl-3.5">{s.source_label}</span>
+                        )}
+                      </button>
+                    );
+                  })}
               </div>
-            ) : null,
-          )}
+            );
+          })}
           {sessions.length === 0 && !error && (
             <div className="px-3 py-3 text-xs text-white/40 italic">Reaching Hermes…</div>
           )}
