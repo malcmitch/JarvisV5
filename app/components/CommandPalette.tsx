@@ -30,6 +30,7 @@ const PAGES: { page: string; label: string }[] = [
   { page: 'webshooter', label: 'Webshooter Designer' },
   { page: 'onewheel', label: 'Project OneWheel' },
   { page: 'social', label: 'Social Command' },
+  { page: 'hermes', label: 'Hermes Command' },
   { page: 'audio-test', label: 'Audio Lab' },
   { page: 'round-display', label: 'Round Display' },
 ];

@@ -57,6 +57,10 @@ const WebshooterPage = dynamic(
 );
 
 // Electron <webview> social dashboard — client-only
+const HermesPage = dynamic(
+  () => import('./components/pages/HermesPage').then((m) => ({ default: m.HermesPage })),
+  { ssr: false },
+);
 const SocialMediaPage = dynamic(
   () => import('./components/pages/SocialMediaPage').then((m) => ({ default: m.SocialMediaPage })),
   { ssr: false }
@@ -72,9 +76,9 @@ const OnewheelPage = dynamic(
   { ssr: false }
 );
 
-type JarvisPage = 'home' | 'news' | 'map' | 'calendar' | 'home-assistant' | '3d-printers' | 'music' | 'round-display' | 'spiderman' | 'manufacturing' | 'webshooter' | 'social' | 'audio-test' | 'onewheel';
+type JarvisPage = 'home' | 'news' | 'map' | 'calendar' | 'home-assistant' | '3d-printers' | 'music' | 'round-display' | 'spiderman' | 'manufacturing' | 'webshooter' | 'social' | 'audio-test' | 'onewheel' | 'hermes';
 
-const VALID_PAGES: JarvisPage[] = ['home', 'news', 'map', 'calendar', 'home-assistant', '3d-printers', 'music', 'round-display', 'spiderman', 'manufacturing', 'webshooter', 'social', 'audio-test', 'onewheel'];
+const VALID_PAGES: JarvisPage[] = ['home', 'news', 'map', 'calendar', 'home-assistant', '3d-printers', 'music', 'round-display', 'spiderman', 'manufacturing', 'webshooter', 'social', 'audio-test', 'onewheel', 'hermes'];
 
 interface BuildModel { file: string; name: string; sub: string }
 
@@ -226,6 +230,9 @@ export default function Home() {
         )}
         {currentPage === 'social' && (
           <SocialMediaPage key="social" onNavigateHome={() => setCurrentPage('home')} />
+        )}
+        {currentPage === 'hermes' && (
+          <HermesPage key="hermes" onNavigateHome={() => setCurrentPage('home')} />
         )}
         {currentPage === 'audio-test' && (
           <AudioTestPage key="audio-test" onNavigateHome={() => setCurrentPage('home')} />
